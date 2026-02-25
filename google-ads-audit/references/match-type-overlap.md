@@ -257,3 +257,180 @@ def generate_match_type_recommendations(match_summary, overlap_df, brand_leak_df
 | Campaign | Search Term | Cost | Conv | Action |
 |----------|-------------|------|------|--------|
 | ENG \| Generic \| Fertility | pronatal clinic | $300 | 5 | Add "pronatal" as negative |
+
+## Brand/Non-Brand Split Analysis
+
+Most accounts have branded traffic hidden inside "generic" or "prospecting" campaigns. Google routes branded searches there because they perform well and inflate blended metrics — agencies often stay quiet because it makes numbers look better.
+
+### Detection
+
+```python
+def analyze_brand_nonbrand_split(st_df, brand_terms):
+    """
+    Calculate branded vs non-branded traffic split by campaign.
+
+    Args:
+        st_df: Search Terms DataFrame
+        brand_terms: List of brand variants to check
+                     (e.g., ['mybrand', 'my brand', 'mybrand.com'])
+
+    Returns:
+        DataFrame with brand % per campaign
+    """
+    brand_pattern = '|'.join([re.escape(t.lower()) for t in brand_terms])
+    st_df = st_df.copy()
+    st_df['Is_Branded'] = st_df['Search term'].str.lower().str.contains(brand_pattern)
+
+    split = st_df.groupby(['Campaign', 'Is_Branded']).agg({
+        'Cost': 'sum',
+        'Conversions': 'sum',
+        'Clicks': 'sum'
+    }).reset_index()
+
+    # Pivot to branded / non-branded columns
+    pivot = split.pivot_table(
+        index='Campaign',
+        columns='Is_Branded',
+        values=['Cost', 'Conversions', 'Clicks'],
+        aggfunc='sum',
+        fill_value=0
+    )
+    pivot.columns = ['_'.join([str(c[0]), 'nb' if not c[1] else 'brand']) for c in pivot.columns]
+
+    total_cost = pivot.get('Cost_brand', 0) + pivot.get('Cost_nb', 0)
+    pivot['Brand_Cost_Pct'] = (pivot.get('Cost_brand', 0) / total_cost * 100).round(1)
+
+    return pivot.reset_index().sort_values('Brand_Cost_Pct', ascending=False)
+```
+
+### Fix Workflow
+
+1. Create dedicated branded campaigns (if not already separated)
+2. Add all brand terms as **negative keywords** in non-brand campaigns (exact + phrase match)
+3. Add generic/product category terms as negatives in brand campaigns (to keep them focused)
+4. Target budget split: **80-85% prospecting / 15-20% brand**
+5. Review search terms report **weekly** to catch new brand leaks
+6. Update negative keyword lists **monthly** based on new search term data
+
+### Branded Terms to Check
+
+- Company name (all spellings)
+- Brand + product combinations ("mybrand creatine")
+- Common misspellings
+- Branded model numbers or SKUs
+- Domain name ("mybrand.com")
+
+### Typical Finding
+
+| Campaign | Brand Cost % | Action |
+|----------|-------------|--------|
+| Generic - Supplements | 42% | Add brand as negatives |
+| Prospecting - Women | 28% | Add brand as negatives |
+| Brand - Core | 98% | OK |
+
+Once brand traffic is isolated, non-brand CPA typically increases 30-60% — revealing the true prospecting cost that was masked by blended reporting.
+
+## Brand Keyword Match Types
+
+Brand protection keywords must use controlled match types. Broad match has no place in brand campaigns.
+
+### Match Type Rules
+
+| Match Type | Use for Brand? | Risk |
+|------------|---------------|------|
+| Exact `[brand]` | ✓ Primary | Low — most controlled |
+| Phrase `"brand"` | ✓ For variants | Low — captures "brand + modifier" |
+| Broad `brand` | ✗ Never | High — triggers unrelated searches |
+
+### Detection
+
+```python
+def find_broad_brand_keywords(kw_df, brand_terms):
+    """
+    Find brand keywords using Broad match (should never happen).
+
+    Args:
+        kw_df: Keywords DataFrame
+        brand_terms: List of brand terms
+
+    Returns:
+        DataFrame with brand keywords on broad match
+    """
+    brand_pattern = '|'.join([re.escape(t.lower()) for t in brand_terms])
+
+    # Flag brand campaigns (by naming convention)
+    brand_campaigns = kw_df['Campaign'].str.lower().str.contains('brand')
+
+    # Find brand keywords
+    is_brand_kw = kw_df['Keyword'].str.lower().str.contains(brand_pattern)
+
+    # Filter to broad match only
+    broad_match = kw_df[
+        (brand_campaigns | is_brand_kw) &
+        (kw_df['Match Type'].str.lower() == 'broad match')
+    ]
+
+    return broad_match[['Campaign', 'Ad Group', 'Keyword', 'Match Type', 'Cost', 'Impressions']]
+```
+
+### Fix
+
+For each broad match brand keyword found:
+1. Add `[exact match]` version of the keyword
+2. Add `"phrase match"` version for variant coverage
+3. Pause or remove the broad match version
+4. Monitor for impression share drop (should stay stable or improve)
+
+## Non-Branded Search Terms in Brand Campaigns
+
+Generic terms triggering brand campaigns waste budget — these clicks should be handled by non-brand campaigns with appropriate bidding.
+
+### Detection
+
+```python
+def find_nonbrand_in_brand_campaigns(st_df, brand_terms, brand_campaign_pattern='brand'):
+    """
+    Find generic search terms appearing in brand campaigns.
+
+    Args:
+        st_df: Search Terms DataFrame
+        brand_terms: List of brand name variants
+        brand_campaign_pattern: String to identify brand campaigns by name
+
+    Returns:
+        DataFrame of non-branded terms in brand campaigns
+    """
+    brand_pattern = '|'.join([re.escape(t.lower()) for t in brand_terms])
+
+    # Filter to brand campaigns
+    brand_campaigns_df = st_df[
+        st_df['Campaign'].str.lower().str.contains(brand_campaign_pattern)
+    ].copy()
+
+    # Find terms WITHOUT brand keywords (non-branded in brand campaign)
+    brand_campaigns_df['Contains_Brand'] = (
+        brand_campaigns_df['Search term'].str.lower().str.contains(brand_pattern)
+    )
+
+    non_brand_in_brand = brand_campaigns_df[~brand_campaigns_df['Contains_Brand']]
+
+    return non_brand_in_brand[[
+        'Campaign', 'Ad Group', 'Search term',
+        'Cost', 'Conversions', 'Clicks', 'CPA'
+    ]].sort_values('Cost', ascending=False)
+```
+
+### Common Non-Branded Terms Found in Brand Campaigns
+
+- Generic product searches ("protein powder") triggered by broad or phrase brand keywords
+- Competitor names
+- Category-level searches ("supplements", "creatine")
+- Problem-solution searches ("post workout recovery")
+
+### Fix
+
+1. Export all non-branded search terms from brand campaigns
+2. Add as **negative keywords** in brand campaigns (exact match per term)
+3. Verify these terms are targeted in non-brand campaigns
+4. If high performers (good CPA), add as exact match keywords in non-brand campaigns with appropriate bids
+5. Monitor weekly to catch new non-branded terms as they appear

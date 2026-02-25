@@ -354,18 +354,186 @@ def check_ad_best_practices(headlines, descriptions, keywords):
     return issues
 ```
 
+## CTR Performance Benchmarks
+
+Low CTR means ad copy isn't compelling enough or doesn't match search intent. Check CTR against campaign type benchmarks.
+
+### Benchmarks
+
+| Campaign Type | Good CTR | Warning | Action Needed |
+|--------------|----------|---------|---------------|
+| Brand Search | ≥5% | 3-5% | <3% |
+| Non-Brand Search | ≥2% | 1-2% | <1% |
+| Shopping | ≥2-3% | 1-2% | <1% |
+
+### Detection
+
+```python
+def flag_low_ctr_ads(ads_df, campaigns_df, brand_campaign_pattern='brand'):
+    """
+    Flag ads below CTR benchmarks for their campaign type.
+
+    Args:
+        ads_df: Ads DataFrame with CTR and campaign name
+        campaigns_df: Campaigns DataFrame (for campaign type)
+        brand_campaign_pattern: Substring to identify brand campaigns
+
+    Returns:
+        DataFrame with below-benchmark ads and recommended actions
+    """
+    # Classify campaign type
+    ads_df = ads_df.copy()
+    ads_df['Campaign_Type'] = ads_df['Campaign'].apply(
+        lambda c: 'Brand' if brand_campaign_pattern.lower() in c.lower() else 'Non-Brand'
+    )
+
+    # Apply benchmarks
+    benchmarks = {'Brand': 5.0, 'Non-Brand': 2.0}
+    ads_df['CTR_Benchmark'] = ads_df['Campaign_Type'].map(benchmarks)
+    ads_df['Below_Benchmark'] = ads_df['CTR'] < ads_df['CTR_Benchmark']
+
+    below = ads_df[ads_df['Below_Benchmark']].copy()
+    below['Gap_Pct'] = ((below['CTR_Benchmark'] - below['CTR']) / below['CTR_Benchmark'] * 100).round(1)
+
+    return below[[
+        'Campaign', 'Ad Group', 'Campaign_Type', 'CTR',
+        'CTR_Benchmark', 'Gap_Pct', 'Ad strength', 'Cost'
+    ]].sort_values('Cost', ascending=False)
+```
+
+### Fix for Below-Benchmark Ads
+
+1. Identify ads below CTR threshold
+2. Create 2-3 new ad variations testing:
+   - Different headlines (emphasize different benefits)
+   - Stronger calls-to-action (Buy, Get, Start, Book)
+   - Promotional messaging (% off, free shipping, limited time)
+   - Trust signals (years in business, reviews, guarantees)
+3. Let Google test combinations for **minimum 2 weeks**
+4. Pause consistently poor performers after sufficient data
+
+### Ad Copy Elements to Test
+
+| Position | What to Test |
+|----------|-------------|
+| Headline 1 | Product name + key benefit |
+| Headline 2 | Unique selling proposition |
+| Headline 3 | Social proof or current promotion |
+| Description 1 | Expand on benefits, address intent |
+| Description 2 | Address objections + clear CTA |
+
+## Brand Ad Copy Quality
+
+Brand campaigns represent your brand at the highest-intent moment. Copy must be professional, consistent, and benefit-focused.
+
+### Quality Checklist
+
+```python
+def check_brand_ad_quality(ads_df, brand_campaign_pattern='brand'):
+    """
+    Check brand ads against quality standards.
+
+    Returns list of issues per ad.
+    """
+    brand_ads = ads_df[
+        ads_df['Campaign'].str.lower().str.contains(brand_campaign_pattern)
+    ].copy()
+
+    issues_list = []
+
+    for _, row in brand_ads.iterrows():
+        issues = []
+        headlines = [h for h in [row.get(f'Headline {i}', '') for i in range(1, 16)] if h]
+        descs = [d for d in [row.get(f'Description {i}', '') for i in range(1, 5)] if d]
+        all_text = ' '.join(headlines + descs)
+
+        # Formatting checks
+        for h in headlines:
+            if h and h != h.title() and not any(word[0].isupper() for word in h.split()):
+                issues.append('Headline not Title Case')
+                break
+
+        # USP check (look for key benefit terms)
+        usp_indicators = [
+            'free shipping', 'money back', 'guarantee', 'fast delivery',
+            'same day', 'award', 'certified', 'official', 'since', 'trusted',
+            '%', 'off', 'save'
+        ]
+        has_usp = any(u in all_text.lower() for u in usp_indicators)
+        if not has_usp:
+            issues.append('No clear USP or benefit in ad copy')
+
+        # CTA check
+        ctas = ['shop', 'buy', 'order', 'get', 'start', 'try', 'discover',
+                'explore', 'learn', 'book', 'contact']
+        has_cta = any(c in all_text.lower() for c in ctas)
+        if not has_cta:
+            issues.append('No clear CTA')
+
+        # Headline count
+        if len(headlines) < 10:
+            issues.append(f'Only {len(headlines)} headlines (target: 15)')
+
+        # Description count
+        if len(descs) < 3:
+            issues.append(f'Only {len(descs)} descriptions (target: 4)')
+
+        issues_list.append({
+            'Campaign': row['Campaign'],
+            'Ad Group': row['Ad Group'],
+            'Ad Strength': row.get('Ad strength', ''),
+            'Issues': '; '.join(issues) if issues else 'OK',
+            'Issue_Count': len(issues)
+        })
+
+    return pd.DataFrame(issues_list).sort_values('Issue_Count', ascending=False)
+```
+
+### Formatting Standards
+
+| Element | Standard |
+|---------|----------|
+| Capitalization | Title Case for headlines |
+| Punctuation | Consistent — no double punctuation, no ALL CAPS |
+| Brand name | Consistent spelling in every ad |
+| Promotional claims | Accurate, time-bound if applicable |
+
+### Required Content Elements
+
+- **USPs**: What makes you different (free shipping, guarantee, awards)
+- **Key features**: Delivery speed, return policy, years in business
+- **Trust signals**: Customer count, reviews, certifications
+- **Current promotions**: Keep in sync with promo calendar
+
+### Recommended Headline Structure
+
+```
+Headline 1: [Brand Name] + [Product Category]
+Headline 2: [Main USP — e.g., Free Shipping on All Orders]
+Headline 3: [Offer or Trust Signal — e.g., 30-Day Money Back Guarantee]
+```
+
+### Promotional Alignment
+
+Brand ad copy must stay synchronized with the promotional calendar:
+1. Schedule custom ad copy variations for each major promotion (Black Friday, seasonal sales, product launches)
+2. Set start/end dates to auto-rotate promotional messaging
+3. Prepare promotional ads **in advance** — do not scramble during campaign launch
+4. Remove or pause expired promotional messaging promptly
+5. Keep a "always on" non-promotional version as fallback
+
 ## Output Format
 
 ### Ad Summary Table
 
-| Campaign | Ad Group | Type | Strength | Headlines | Descriptions | Pins | Issues | Score |
-|----------|----------|------|----------|-----------|--------------|------|--------|-------|
-| Brand | Core | RSA | Good | 12 | 4 | 0 | None | 8 |
-| Generic | IVF | RSA | Average | 6 | 2 | 2 | Low assets, pinning | 5 |
+| Campaign | Ad Group | Type | Strength | CTR | CTR Benchmark | Headlines | Descriptions | Pins | Issues | Score |
+|----------|----------|------|----------|-----|---------------|-----------|--------------|------|--------|-------|
+| Brand | Core | RSA | Good | 6.2% | 5% | 12 | 4 | 0 | None | 8 |
+| Generic | Supplements | RSA | Average | 1.1% | 2% | 6 | 2 | 2 | Low CTR, Low assets | 5 |
 
 ### Recommendations by Priority
 
 1. **Critical**: Ad groups without RSA
-2. **High**: Ad Strength = Poor
-3. **Medium**: < 10 headlines or < 3 descriptions
-4. **Low**: Excessive pinning, minor copy improvements
+2. **High**: Ad Strength = Poor; CTR below benchmark
+3. **Medium**: < 10 headlines or < 3 descriptions; brand ads missing USPs
+4. **Low**: Excessive pinning, minor copy improvements, promotional alignment
