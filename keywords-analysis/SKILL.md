@@ -5,24 +5,46 @@ description: Workflow and analysis layer for comprehensive keyword research. Gui
 
 # Keywords Analysis — Workflow & Analysis
 
-Workflow for collecting SEO keyword data into a DuckDB project + analysis scripts for what comes after.
+Workflow for collecting SEO keyword data into a DuckDB project + analysis tools.
 
-## Workflow: Data Collection
+**Princip:** Každý krok používá svůj vlastní skill. Všechna data jdou do jednoho DuckDB projektu. Po sběru analyzuješ přes `analyze.py`.
 
-> **Each step uses its own skill.** Run them in order, all data lands in one DuckDB project.
+---
 
-### 0. Create DuckDB project
+## Data mapping
+
+> Kde co končí — přehled kam každý krok ukládá data.
+
+| Krok | Zdroj dat | → DuckDB tabulka | Klíčové sloupce |
+|------|-----------|-------------------|-----------------|
+| 1. GSC | Search Console | `search_console` | query, page, clicks, impressions, position |
+| 2. Competitors | DataForSEO | `competitor_keywords` | keyword, search_volume, rank, competitor_domain |
+| 3. KW Planner | Google Ads API | `keyword_planner` | keyword, avg_monthly_searches, competition |
+| 4. Autocomplete | Google Suggest | `suggestions` | seed_keyword, suggestion, position |
+| 5. Volume lookup | Google Ads API | `keyword_planner` | (doplní volume ke krokům 1, 4) |
+| 6. SERP | google-serp | `serp` + `related_queries` + `people_also_ask` | keyword, position, title, url |
+| 7. Volume related+PAA | Google Ads API | `keyword_planner` | (doplní volume ke kroku 6) |
+| 8. Kategorizace | keyword-categorization | export → cluster → CSV | Main_Category, Subcategory |
+
+---
+
+## Workflow
+
+### 0. Vytvoř DuckDB projekt
 
 ```bash
-python3 ../duckdb-keywords/scripts/kw_db.py create <project_name>
+python3 ../duckdb-keywords/scripts/kw_db.py create <project>
 ```
 
-### 1. GSC data (pos ≤ 20)
+---
 
-Pull Search Console data via BigQuery or API. Store to `search_console` table.
+### 1. GSC data (pos ≤ 20) ⭐ Klíčový krok
+
+Tato data jsou základ — ukazují na čem web reálně rankuje.
+
+**Varianta A: BigQuery (nejlepší)**
 
 ```python
-# BigQuery approach
 from google.cloud import bigquery
 client = bigquery.Client()
 query = """
@@ -33,88 +55,165 @@ query = """
     GROUP BY query, page HAVING SUM(impressions) > 0
     ORDER BY impressions DESC
 """
-# Export as CSV, then:
+```
+
+**Varianta B: Google Search Console API**
+
+```python
+from googleapiclient.discovery import build
+service = build('searchconsole', 'v1')
+response = service.searchanalytics().query(
+    siteUrl='sc-domain:example.com',
+    body={
+        'startDate': '2025-09-01', 'endDate': '2026-03-01',
+        'dimensions': ['query', 'page'], 'rowLimit': 25000,
+    }
+).execute()
+# Filtruj rows kde position <= 20
+```
+
+**Varianta C: Google Analytics 4 (MCP tool)**
+
+Pokud jsou GA4 data napojená, použij `run_report` s dimenzí `searchTerm` (pokud je GSC propojená s GA4).
+
+**Varianta D: Manuální export z GSC UI**
+
+1. Jdi na https://search.google.com/search-console → Performance
+2. Filtruj pozice ≤ 20
+3. Exportuj CSV
+4. Importuj: `python3 ../duckdb-keywords/scripts/kw_db.py import <project> search_console export.csv`
+
+> ⚠️ **Vždy** se zeptej uživatele, jaký zdroj GSC dat má k dispozici. Nikdy nepřeskakuj tento krok.
+
+```bash
 python3 ../duckdb-keywords/scripts/kw_db.py import <project> search_console gsc_export.csv
 ```
+
+---
 
 ### 2. Competitor keywords (DataForSEO)
 
 ```bash
+# Pro každého konkurenta:
 python3 ../dataforseo-competitors/scripts/competitor_keywords.py <project> competitor1.com
-python3 ../dataforseo-competitors/scripts/competitor_keywords.py <project> competitor2.com
+python3 ../dataforseo-competitors/scripts/competitor_keywords.py <project> competitor2.com --limit 1000
 ```
+
+---
 
 ### 3. KW Planner ideas
 
-Use `google-ads-keyword-planner` skill to get keyword ideas from seed keywords. Export results and import:
+**Vstup:** seed keywords + **top competitor keywords** (ne jen seedy!)
 
-```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> keyword_planner kw_planner_export.csv
+Postup:
+1. Vezmi seed keywords od uživatele
+2. Z kroku 2 vyber top competitor KWs (podle search_volume)
+3. Obojí pošli do Keyword Planneru (max 20 na batch)
+
+```sql
+-- Vyber top competitor KWs pro KW Planner seeds
+SELECT DISTINCT keyword FROM competitor_keywords
+ORDER BY search_volume DESC LIMIT 50
 ```
+
+Výsledky importuj do `keyword_planner`:
+```bash
+python3 ../duckdb-keywords/scripts/kw_db.py import <project> keyword_planner kw_planner_results.csv
+```
+
+---
 
 ### 4. Google Autocomplete
 
-Run `google-autocomplete` skill for top keywords by volume. Import suggestions:
+**Limity:**
+- **Malý projekt (< 500 KWs):** expand top 10–15 KWs by volume
+- **Střední projekt (500–2000 KWs):** expand top 20–30 KWs
+- **Velký projekt (2000+ KWs):** expand top 30–50 KWs
 
-```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> suggestions autocomplete_results.csv
+> ⚠️ Každé KW trvá ~2 minuty (49 requestů × 2.5s pauza). 30 KWs = ~1 hodina.
+
+Vstup: top N KWs z `keyword_planner` seřazené podle search volume.
+
+```sql
+-- Vyber KWs pro autocomplete expansion
+SELECT DISTINCT keyword FROM keyword_planner
+WHERE avg_monthly_searches > 100
+ORDER BY avg_monthly_searches DESC LIMIT 30
 ```
+
+Výsledky importuj do `suggestions`:
+```bash
+python3 ../duckdb-keywords/scripts/kw_db.py import <project> suggestions autocomplete_*.txt
+```
+
+---
 
 ### 5. Volume lookup
 
-For keywords collected without search volume (autocomplete suggestions, related queries), run KW Planner to get volumes. Import results.
+Pro všechna nová KW bez hledanosti (z autocomplete, GSC) — pošli přes KW Planner.
+
+```sql
+-- KWs které potřebují volume
+SELECT DISTINCT s.suggestion AS keyword FROM suggestions s
+LEFT JOIN keyword_planner kp ON LOWER(s.suggestion) = LOWER(kp.keyword)
+WHERE kp.keyword IS NULL
+```
+
+---
 
 ### 6. SERP scrape (top 100 by volume)
 
 ```bash
-# Use google-serp skill for top keywords
+# Použij google-serp skill s pauzami
 python3 ../google-serp/scripts/google_serp.py "keyword" --lang cs --country cz
-
-# Import organic results, related queries, and PAA
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> serp serp_organic_*.csv
 ```
 
-### 7. Volume for related + PAA
+Importuj:
+```bash
+python3 ../duckdb-keywords/scripts/kw_db.py import <project> serp serp_organic_*.csv
+python3 ../duckdb-keywords/scripts/kw_db.py import <project> related_queries serp_related_*.csv
+python3 ../duckdb-keywords/scripts/kw_db.py import <project> people_also_ask serp_paa_*.csv
+```
 
-Get volumes for newly discovered related queries and PAA questions via KW Planner.
+---
 
-### 8. Categorization
+### 7. Volume pro related + PAA
+
+Stejný postup jako krok 5 — pošli nová related queries a PAA otázky přes KW Planner.
+
+---
+
+### 8. Kategorizace
 
 ```bash
-# Export all keywords with volume from DuckDB, then cluster
+# Export pro clustering
 python3 scripts/analyze.py <project> export-for-clustering
+
+# Spusť clustering
 python3 ../keyword-categorization/scripts/cluster_keywords.py /tmp/kw_<project>_for_clustering.csv
 ```
 
 ---
 
-## Analysis Script
+## Analysis script
 
-`scripts/analyze.py` — works with data already collected in DuckDB.
+`scripts/analyze.py` — pracuje s daty v DuckDB.
 
 ```bash
-# Dedup report — find duplicates across tables
-python3 scripts/analyze.py <project> dedup
-
-# Overview — keyword counts, volume distribution, source breakdown
-python3 scripts/analyze.py <project> overview
-
-# Top keywords — unified view by volume
-python3 scripts/analyze.py <project> top [N]
-
-# Gaps — keywords competitors rank for but not in GSC
-python3 scripts/analyze.py <project> gaps
-
-# Export for clustering
-python3 scripts/analyze.py <project> export-for-clustering
-
-# Export all unique keywords with volumes to CSV
-python3 scripts/analyze.py <project> export-all
+python3 scripts/analyze.py <project> overview              # Přehled: počty, volume, zdroje
+python3 scripts/analyze.py <project> dedup                 # Duplicity a overlap report
+python3 scripts/analyze.py <project> top 50                # Top N KWs by volume (všechny zdroje)
+python3 scripts/analyze.py <project> gaps                  # KWs kde competitor rankuje a ty ne
+python3 scripts/analyze.py <project> export-for-clustering # Export pro keyword-categorization
+python3 scripts/analyze.py <project> export-all            # Kompletní export unique KWs
 ```
 
-## Key principles
+---
 
-- **Each skill collects its own data** — this skill only analyzes
-- **DuckDB is the single source of truth** — all data goes there
-- **Dedup continuously** — run `analyze.py dedup` after each import step
-- **Volume is king** — always enrich keywords without volume via KW Planner before analysis
+## Klíčové zásady
+
+- **Nikdy nepřeskoč GSC** — vždycky se zeptej jak data získat
+- **KW Planner = seeds + competitor KWs** — ne jen seedy
+- **Autocomplete limit domluv s uživatelem** — kolik KWs expandovat
+- **Dedup průběžně** — `analyze.py dedup` po každém importním kroku
+- **Volume je základ** — KWs bez volume obohať přes KW Planner předtím, než analyzuješ
