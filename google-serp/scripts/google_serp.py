@@ -17,11 +17,40 @@ import csv
 import json
 import math
 import random
+import time
 import sys
 import os
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
+
+
+# ── Anti-detection pools ────────────────────────────────────────────────────
+
+USER_AGENTS = [
+    # Chrome on macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    # Chrome on Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    # Firefox
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0',
+    # Safari
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15',
+    # Edge
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+]
+
+VIEWPORTS = [
+    {'width': 1920, 'height': 1080},
+    {'width': 1536, 'height': 864},
+    {'width': 1440, 'height': 900},
+    {'width': 1366, 'height': 768},
+    {'width': 1280, 'height': 900},
+    {'width': 1280, 'height': 720},
+]
 
 
 # ── Human-like mouse movement (anti-detection) ─────────────────────────────
@@ -91,20 +120,25 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
 
     homepage = f"https://www.google.{country}/?hl={lang}&gl={country}"
 
+    ua = random.choice(USER_AGENTS)
+    vp = random.choice(VIEWPORTS)
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=['--disable-blink-features=AutomationControlled']
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--disable-extensions',
+            ]
         )
         ctx = await browser.new_context(
-            viewport={'width': 1280, 'height': 900},
+            viewport=vp,
             locale=f'{lang}-{country.upper()}',
             timezone_id='Europe/Prague',
-            user_agent=(
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/122.0.0.0 Safari/537.36'
-            ),
+            user_agent=ua,
             extra_http_headers={'Accept-Language': f'{lang}-{country.upper()},{lang};q=0.9'}
         )
         page = await ctx.new_page()
@@ -251,6 +285,15 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
 
 def scrape(query: str, lang: str = 'cs', country: str = 'cz', num: int = 10) -> dict:
     return asyncio.run(_scrape(query, lang, country, num))
+
+
+def scrape_with_pause(query: str, lang: str = 'cs', country: str = 'cz',
+                      num: int = 10, pause_min: int = 8, pause_max: int = 15) -> dict:
+    """Scrape with a mandatory random pause BEFORE the request (for batch usage)."""
+    wait = random.uniform(pause_min, pause_max)
+    print(f"  ⏳ Waiting {wait:.1f}s before scraping \"{query}\"...", file=sys.stderr)
+    time.sleep(wait)
+    return scrape(query, lang, country, num)
 
 
 # ── Formatting ───────────────────────────────────────────────────────────────

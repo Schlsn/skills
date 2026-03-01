@@ -1,6 +1,6 @@
 ---
 name: google-serp
-description: Scrape Google Search results using local Playwright (headless=False Chromium). Returns organic results, People Also Ask, and Related Searches as formatted tables and CSV files. Use when the user asks to scrape Google, get SERP results, check rankings, or analyze search results for any keyword.
+description: Scrape Google Search results using local Playwright (headless Chromium). Returns organic results, People Also Ask, and Related Searches as formatted tables and CSV files. Use when the user asks to scrape Google, get SERP results, check rankings, or analyze search results for any keyword.
 ---
 
 # Google SERP Scraper
@@ -17,11 +17,16 @@ Works across all Google country/language variants.
 import sys, os
 skill_dir = os.path.dirname(os.path.abspath(__file__))  # or resolve from SKILL.md location
 sys.path.insert(0, os.path.join(skill_dir, 'scripts'))
-from google_serp import scrape, print_results, save_csv
+from google_serp import scrape, scrape_with_pause, print_results, save_csv
 
+# Single query
 data = scrape("pronatal", lang="cs", country="cz", num=10)
 print_results(data, "pronatal")
-save_csv(data, "pronatal", "~/google_serp_outputs")
+
+# Batch — MUST use scrape_with_pause (8-15s random wait before each request)
+for kw in ["ivf", "icsi", "fertility clinic"]:
+    data = scrape_with_pause(kw, lang="cs", country="cz")
+    print_results(data, kw)
 ```
 
 Or directly from CLI:
@@ -29,6 +34,19 @@ Or directly from CLI:
 python3 scripts/google_serp.py "pronatal"
 python3 scripts/google_serp.py "coffee prague" --lang en --country cz
 python3 scripts/google_serp.py "seo tools" --lang en --country us --num 20
+```
+
+## ⚠️ Mandatory pause between calls
+
+**When scraping multiple keywords, you MUST wait at least 8–15 seconds between requests.**
+Use `scrape_with_pause()` (Python) or `sleep` (CLI). Failure to pause will trigger Google CAPTCHA.
+
+```bash
+# CLI batch example:
+for kw in "ivf" "icsi" "embryo"; do
+  python3 scripts/google_serp.py "$kw" --no-csv
+  sleep $(( RANDOM % 8 + 8 ))
+done
 ```
 
 ## Parameters
@@ -53,25 +71,19 @@ Three tables printed to stdout + three CSV files saved:
 
 CSV files named: `serp_organic_<query>_<timestamp>.csv` etc.
 
-## Using from Claude
+## Anti-detection features
 
-When user asks to scrape Google for a keyword, use the Bash tool to run:
-
-```bash
-python3 scripts/google_serp.py "<query>" --lang <lang> --country <country>
-```
-
-Then display the output tables to the user.
-
-**Default for Czech Google:** `--lang cs --country cz`
-**For English Google US:** `--lang en --country com`
-**For German Google:** `--lang de --country de`
+- **Randomized User-Agent** — pool of 8 real browser UAs (Chrome/Firefox/Safari/Edge, Mac/Win)
+- **Randomized viewport** — 6 common desktop resolutions (1920×1080 down to 1280×720)
+- **Human-like search flow** — visits Google homepage first, types query character-by-character
+- **Bézier mouse movements** — smooth cursor paths with ±2.5px jitter + 10–60ms random delays
+- **playwright-stealth** — patches navigator.webdriver and other browser fingerprint leaks
+- **Extra Chromium args** — disables automation flags, extensions, first-run dialogs
 
 ## Notes
 
 - Uses `headless=True` Chromium — runs invisibly in the background
-- **Anti-detection**: human-like mouse movements with Bézier easing, random jitter (±2.5px), and randomized delays (10–60ms) to minimize CAPTCHA risk
 - Handles cookie consent banners automatically (all languages)
-- Related searches detection is language-agnostic (structural URL analysis, not text matching)
+- Related searches detection is language-agnostic (structural URL analysis)
 - CAPTCHA may occur on datacenter IPs — works best on residential/home IPs
-- Playwright must be installed: `pip3 install playwright --break-system-packages && python3 -m playwright install chromium`
+- Playwright must be installed: `pip3 install playwright playwright-stealth --break-system-packages && python3 -m playwright install chromium`
