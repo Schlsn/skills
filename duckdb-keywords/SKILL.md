@@ -1,11 +1,11 @@
 ---
 name: duckdb-keywords
-description: Project-based DuckDB database for keyword analysis. Standardized schemas for 7 SEO data sources (Google Ads, Keyword Planner, SERP, Suggestions, Related Queries, PAA, Search Console). Supports local and remote (SSH to Hetzner) execution. Use when the user wants to store, query, import, or analyze keyword data with SQL.
+description: Project-based DuckDB database for keyword analysis. Standardized schemas for 8 SEO data sources (Google Ads, Keyword Planner, SERP, Suggestions, Related Queries, PAA, Search Console, Competitor Keywords). Supports local and remote (SSH to Hetzner) execution. Use when the user wants to store, query, import, or analyze keyword data with SQL.
 ---
 
 # DuckDB Keywords — Project Database Manager
 
-Per-project DuckDB databases with standardized SEO table schemas.
+Per-project DuckDB databases with standardized SEO table schemas (8 tables).
 Works locally or remotely on Hetzner server via SSH.
 
 ## Script location
@@ -58,14 +58,17 @@ python3 $DB -r query findbestclinic "SELECT COUNT(*) FROM google_ads"
 | `related_queries` | Related Searches from SERP | seed_keyword, related_query, position |
 | `people_also_ask` | PAA questions from SERP | seed_keyword, question, answer_snippet |
 | `search_console` | GSC performance data | query, page, clicks, impressions, ctr, position, date |
+| `competitor_keywords` | DataForSEO competitor ranked kws (top 20) | competitor_domain, keyword, search_volume, rank_absolute, url, etv |
 
 **Every table has:** `imported_at` (auto timestamp) + `downloaded_at` (user-specified date)
+
+> `competitor_keywords` is populated by the `dataforseo-competitors` skill, not by CSV import.
 
 ## CLI commands
 
 | Command | Description |
 |---------|-------------|
-| `create <project>` | Create project with all 7 tables |
+| `create <project>` | Create project with all 8 tables |
 | `projects` | List all project databases |
 | `tables <project>` | Show tables and row counts |
 | `import <project> <table> <csv>` | Import CSV with auto column mapping |

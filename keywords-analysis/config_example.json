@@ -1,0 +1,14 @@
+{
+  "project": "example_project",
+  "seed_keywords": ["ivf", "icsi", "fertility clinic"],
+  "competitors": ["pronatal.cz"],
+  "language": "cs",
+  "country": "cz",
+  "location_code": 2203,
+  "gsc_property": "sc-domain:example.com",
+  "gsc_source": "bigquery",
+  "bq_dataset": "searchconsole_example",
+  "google_ads_customer_id": "1764032686",
+  "autocomplete_top_n": 30,
+  "serp_top_n": 100
+}

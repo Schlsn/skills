@@ -199,6 +199,45 @@ SCHEMAS = {
             "date": ["date", "datum"],
         },
     },
+    "competitor_keywords": {
+        "description": "DataForSEO competitor ranked keywords (top 20)",
+        "create": """
+            CREATE TABLE IF NOT EXISTS competitor_keywords (
+                competitor_domain VARCHAR NOT NULL,
+                keyword VARCHAR NOT NULL,
+                search_volume INTEGER,
+                competition DOUBLE,
+                cpc DOUBLE,
+                search_intent VARCHAR,
+                rank_absolute INTEGER,
+                serp_type VARCHAR,
+                url VARCHAR,
+                title VARCHAR,
+                description VARCHAR,
+                etv DOUBLE,
+                is_paid BOOLEAN,
+                monthly_searches_json VARCHAR,
+                imported_at TIMESTAMP DEFAULT current_timestamp,
+                downloaded_at DATE
+            )
+        """,
+        "columns": {
+            "competitor_domain": ["competitor_domain", "domain", "target"],
+            "keyword": ["keyword", "keywords", "klíčové slovo"],
+            "search_volume": ["search_volume", "volume", "hledanost"],
+            "competition": ["competition", "konkurence"],
+            "cpc": ["cpc", "cost per click"],
+            "search_intent": ["search_intent", "intent", "záměr"],
+            "rank_absolute": ["rank_absolute", "position", "rank", "pozice"],
+            "serp_type": ["serp_type", "type"],
+            "url": ["url", "link", "odkaz"],
+            "title": ["title", "nadpis"],
+            "description": ["description", "snippet", "popis"],
+            "etv": ["etv", "estimated_traffic"],
+            "is_paid": ["is_paid"],
+            "monthly_searches_json": ["monthly_searches_json", "monthly_searches"],
+        },
+    },
 }
 
 
