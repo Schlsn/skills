@@ -89,10 +89,7 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
     except ImportError:
         _has_stealth = False
 
-    url = (
-        f"https://www.google.{country}/search"
-        f"?q={quote_plus(query)}&hl={lang}&gl={country}&num={num}&pws=0"
-    )
+    homepage = f"https://www.google.{country}/?hl={lang}&gl={country}"
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -119,12 +116,13 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
             )
 
-        await page.goto(url, wait_until='networkidle', timeout=30000)
+        # ── Step 1: Visit Google homepage first (like a real user) ────────
+        await page.goto(homepage, wait_until='networkidle', timeout=30000)
 
-        # Human-like mouse movement after page load
-        await _human_mouse_move(page, random.randint(300, 900), random.randint(200, 600))
+        # Human-like mouse movement on homepage
+        await _human_mouse_move(page, random.randint(400, 800), random.randint(300, 500))
 
-        # Accept cookie consent if shown
+        # Accept cookie consent if shown (on homepage)
         for label in ['Přijmout vše', 'Accept all', 'Alle akzeptieren',
                        'Tout accepter', 'Aceptar todo']:
             try:
@@ -137,7 +135,34 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
             except Exception:
                 continue
 
-        # Second mouse movement after consent — simulate browsing
+        await page.wait_for_timeout(random.randint(500, 1500))
+
+        # ── Step 2: Type query into search box (human-like) ───────────────
+        search_box = await page.wait_for_selector(
+            'textarea[name="q"], input[name="q"]', timeout=10000
+        )
+        await _human_mouse_move(page, 640, 400)  # move toward search box area
+        await search_box.click()
+        await page.wait_for_timeout(random.randint(200, 600))
+
+        # Type character by character with random delays
+        for char in query:
+            await page.keyboard.type(char, delay=random.randint(30, 120))
+            if random.random() < 0.1:  # 10% chance of micro-pause
+                await page.wait_for_timeout(random.randint(100, 400))
+
+        await page.wait_for_timeout(random.randint(300, 800))
+        await page.keyboard.press('Enter')
+        await page.wait_for_load_state('networkidle', timeout=30000)
+
+        # ── Step 3: On results page — set num param if needed ─────────────
+        if num != 10:
+            # Append num parameter by navigating to the current URL + num
+            current_url = page.url
+            sep = '&' if '?' in current_url else '?'
+            await page.goto(f"{current_url}{sep}num={num}&pws=0", wait_until='networkidle', timeout=30000)
+
+        # Second mouse movement — simulate reading results
         await _human_mouse_move(page, random.randint(200, 800), random.randint(150, 500))
         await page.wait_for_timeout(random.randint(800, 2000))
         await page.keyboard.press('Escape')
