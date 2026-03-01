@@ -15,11 +15,44 @@ import asyncio
 import argparse
 import csv
 import json
+import math
+import random
 import sys
 import os
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
+
+
+# ── Human-like mouse movement (anti-detection) ─────────────────────────────
+
+def _bezier_ease(t: float) -> float:
+    """Attempt cubic Bézier ease (0.25,0.1,0.25,1). Falls back to simple ease."""
+    # Simple cubic ease-in-out that closely matches the Bézier curve
+    if t < 0.5:
+        return 4 * t * t * t
+    else:
+        return 1 - (-2 * t + 2) ** 3 / 2
+
+
+async def _human_mouse_move(page, target_x: float, target_y: float, steps: int = 35):
+    """Move mouse from viewport center to target with Bézier easing + jitter."""
+    dims = await page.evaluate("() => ({w: window.innerWidth, h: window.innerHeight})")
+    start_x = dims['w'] / 2 + random.uniform(-50, 50)
+    start_y = dims['h'] / 2 + random.uniform(-50, 50)
+    await page.mouse.move(start_x, start_y)
+
+    for i in range(1, steps + 1):
+        t = i / steps
+        progress = _bezier_ease(t)
+        x = start_x + (target_x - start_x) * progress
+        y = start_y + (target_y - start_y) * progress
+        jx = random.uniform(-2.5, 2.5)
+        jy = random.uniform(-2.5, 2.5)
+        await page.mouse.move(x + jx, y + jy)
+        await page.wait_for_timeout(random.randint(10, 60))
+
+    await page.mouse.move(target_x, target_y)
 
 
 # ── Playwright check ────────────────────────────────────────────────────────
@@ -88,6 +121,9 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
 
         await page.goto(url, wait_until='networkidle', timeout=30000)
 
+        # Human-like mouse movement after page load
+        await _human_mouse_move(page, random.randint(300, 900), random.randint(200, 600))
+
         # Accept cookie consent if shown
         for label in ['Přijmout vše', 'Accept all', 'Alle akzeptieren',
                        'Tout accepter', 'Aceptar todo']:
@@ -101,9 +137,11 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
             except Exception:
                 continue
 
-        await page.wait_for_timeout(2000)
+        # Second mouse movement after consent — simulate browsing
+        await _human_mouse_move(page, random.randint(200, 800), random.randint(150, 500))
+        await page.wait_for_timeout(random.randint(800, 2000))
         await page.keyboard.press('Escape')
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(random.randint(300, 700))
 
         # Check for CAPTCHA
         body_text = await page.evaluate('document.body.innerText')

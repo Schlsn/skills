@@ -9,13 +9,14 @@ Scrapes live Google Search results using local Playwright Chromium. No API key r
 Works across all Google country/language variants.
 
 ## Script location
-`~/.claude/skills/google-serp/scripts/google_serp.py`
+`scripts/google_serp.py` (relative to this skill directory)
 
 ## Quick start
 
 ```python
-import sys
-sys.path.insert(0, os.path.expanduser('~/.claude/skills/google-serp/scripts'))
+import sys, os
+skill_dir = os.path.dirname(os.path.abspath(__file__))  # or resolve from SKILL.md location
+sys.path.insert(0, os.path.join(skill_dir, 'scripts'))
 from google_serp import scrape, print_results, save_csv
 
 data = scrape("pronatal", lang="cs", country="cz", num=10)
@@ -25,9 +26,9 @@ save_csv(data, "pronatal", "~/google_serp_outputs")
 
 Or directly from CLI:
 ```bash
-python3 ~/.claude/skills/google-serp/scripts/google_serp.py "pronatal"
-python3 ~/.claude/skills/google-serp/scripts/google_serp.py "coffee prague" --lang en --country cz
-python3 ~/.claude/skills/google-serp/scripts/google_serp.py "seo tools" --lang en --country us --num 20
+python3 scripts/google_serp.py "pronatal"
+python3 scripts/google_serp.py "coffee prague" --lang en --country cz
+python3 scripts/google_serp.py "seo tools" --lang en --country us --num 20
 ```
 
 ## Parameters
@@ -57,7 +58,7 @@ CSV files named: `serp_organic_<query>_<timestamp>.csv` etc.
 When user asks to scrape Google for a keyword, use the Bash tool to run:
 
 ```bash
-python3 ~/.claude/skills/google-serp/scripts/google_serp.py "<query>" --lang <lang> --country <country>
+python3 scripts/google_serp.py "<query>" --lang <lang> --country <country>
 ```
 
 Then display the output tables to the user.
@@ -69,6 +70,7 @@ Then display the output tables to the user.
 ## Notes
 
 - Uses `headless=False` Chromium — a browser window will briefly appear
+- **Anti-detection**: human-like mouse movements with Bézier easing, random jitter (±2.5px), and randomized delays (10–60ms) to minimize CAPTCHA risk
 - Handles cookie consent banners automatically (all languages)
 - Related searches detection is language-agnostic (structural URL analysis, not text matching)
 - CAPTCHA may occur on datacenter IPs — works best on residential/home IPs
