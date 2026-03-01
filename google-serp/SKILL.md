@@ -69,7 +69,7 @@ Then display the output tables to the user.
 
 ## Notes
 
-- Uses `headless=False` Chromium — a browser window will briefly appear
+- Uses `headless=True` Chromium — runs invisibly in the background
 - **Anti-detection**: human-like mouse movements with Bézier easing, random jitter (±2.5px), and randomized delays (10–60ms) to minimize CAPTCHA risk
 - Handles cookie consent banners automatically (all languages)
 - Related searches detection is language-agnostic (structural URL analysis, not text matching)

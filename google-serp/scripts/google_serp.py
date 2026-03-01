@@ -93,7 +93,7 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=False,
+            headless=True,
             args=['--disable-blink-features=AutomationControlled']
         )
         ctx = await browser.new_context(
@@ -163,6 +163,8 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
             await page.goto(f"{current_url}{sep}num={num}&pws=0", wait_until='networkidle', timeout=30000)
 
         # Second mouse movement — simulate reading results
+        await page.wait_for_load_state('domcontentloaded')
+        await page.wait_for_timeout(1000)
         await _human_mouse_move(page, random.randint(200, 800), random.randint(150, 500))
         await page.wait_for_timeout(random.randint(800, 2000))
         await page.keyboard.press('Escape')
