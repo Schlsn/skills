@@ -13,8 +13,12 @@ The Google Ads Keyword Planner API (`KeywordPlanIdeaService`) is a **separate se
 
 ### Prerequisites
 
-1. **SDK installed**: `pip3 install google-ads --break-system-packages` (if not already present)
-2. **Credentials**: `~/.google-ads.yaml` or check `/Users/adam/Documents/credentials/google-ads.yaml`
+1. **SDK installed**: `pip3 install google-ads google-auth-oauthlib --break-system-packages`
+2. **Credentials Setup**: If you don't have a valid `google-ads.yaml`, run the setup script:
+   ```bash
+   python3 ~/.agents/skills/google-ads-keyword-planner/scripts/setup_credentials.py
+   ```
+   *This will open a browser window to authenticate and generate a refresh token. You'll need your GCP OAuth Client ID/Secret and your Google Ads Developer Token.*
 3. **Customer ID**: The account to bill the query against (not necessarily the account being researched)
 
 ---
