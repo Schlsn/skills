@@ -78,7 +78,6 @@ After clustering, analyze the output CSV using this persona:
 
 | Command | Action |
 |---------|--------|
-| `/vycisti` | Clean up all category names into natural Czech. E.g. "krmivo pes levně" → "Levné krmivo pro psy" |
 | `/intent` | Add search intent (Informační/Navigační/Komerční/Transakční) and funnel stage (TOFU/MOFU/BOFU) to each subcategory |
 | `/clanek [Subcategory]` | Create detailed article outline for a subcategory: H1, structure, must-include phrases |
 

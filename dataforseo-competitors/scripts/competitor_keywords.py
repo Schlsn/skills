@@ -138,7 +138,7 @@ def fetch_competitor_keywords(
     parsed = []
     for item in items:
         try:
-            parsed.append(_parse_item(item, domain))
+            parsed.append(_parse_item(item, domain, language_code, str(location_code)))
         except Exception as e:
             print(f"Warning: skipping item due to error: {e}", file=sys.stderr)
 
@@ -146,7 +146,7 @@ def fetch_competitor_keywords(
     return parsed
 
 
-def _parse_item(item: dict, domain: str) -> dict:
+def _parse_item(item: dict, domain: str, language: str, country: str) -> dict:
     """Parse a single ranked keyword item from the API response."""
     kw_data = item.get("keyword_data", {})
     kw_info = kw_data.get("keyword_info", {})
@@ -174,6 +174,10 @@ def _parse_item(item: dict, domain: str) -> dict:
         "etv": serp_item.get("etv"),
         "is_paid": serp_item.get("is_paid"),
         "monthly_searches_json": monthly_json,
+        "language": language,
+        "country": country,
+    }
+
 # ── DuckDB storage ─────────────────────────────────────────────────────────
 
 DB_BASE = Path.home() / "kw_projects"
@@ -194,6 +198,8 @@ CREATE TABLE IF NOT EXISTS competitor_keywords (
     etv DOUBLE,
     is_paid BOOLEAN,
     monthly_searches_json VARCHAR,
+    language VARCHAR,
+    country VARCHAR,
     imported_at TIMESTAMP DEFAULT current_timestamp,
     downloaded_at DATE
 )
@@ -236,6 +242,7 @@ def store_to_duckdb(
             "competitor_domain", "keyword", "search_volume", "competition",
             "cpc", "search_intent", "rank_absolute", "serp_type", "url",
             "title", "description", "etv", "is_paid", "monthly_searches_json",
+            "language", "country",
             "downloaded_at",
         ]
         placeholders = ", ".join(["?"] * len(cols))
@@ -258,6 +265,8 @@ def store_to_duckdb(
                 item.get("etv"),
                 item.get("is_paid"),
                 item.get("monthly_searches_json"),
+                item.get("language"),
+                item.get("country"),
                 dl_date,
             ]
             con.execute(insert_sql, values)
@@ -294,6 +303,7 @@ def export_csv(items: list[dict], csv_path: str) -> str:
         "competitor_domain", "keyword", "search_volume", "competition",
         "cpc", "search_intent", "rank_absolute", "serp_type", "url",
         "title", "description", "etv", "is_paid", "monthly_searches_json",
+        "language", "country",
     ]
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:

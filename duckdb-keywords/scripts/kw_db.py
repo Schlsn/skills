@@ -47,6 +47,8 @@ SCHEMAS = {
                 campaign VARCHAR,
                 ad_group VARCHAR,
                 match_type VARCHAR,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -61,6 +63,8 @@ SCHEMAS = {
             "campaign": ["campaign", "kampaň"],
             "ad_group": ["ad group", "sestava"],
             "match_type": ["match type", "typ shody"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
     },
     "keyword_planner": {
@@ -76,20 +80,24 @@ SCHEMAS = {
                 currency VARCHAR DEFAULT 'CZK',
                 yoy_change DOUBLE,
                 three_month_change DOUBLE,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
         """,
         "columns": {
             "keyword": ["keyword", "keywords", "klíčové slovo"],
-            "avg_monthly_searches": ["avg. monthly searches", "search volume", "volume", "průměrné měsíční vyhledávání"],
+            "avg_monthly_searches": ["avg. monthly searches", "avg_monthly_searches", "search volume", "volume", "průměrné měsíční vyhledávání"],
             "competition": ["competition", "konkurence"],
-            "competition_index": ["competition (indexed value)"],
-            "top_bid_low": ["top of page bid (low range)", "low bid"],
-            "top_bid_high": ["top of page bid (high range)", "high bid"],
+            "competition_index": ["competition (indexed value)", "competition_index"],
+            "top_bid_low": ["top of page bid (low range)", "low bid", "cpc_low_top_of_page"],
+            "top_bid_high": ["top of page bid (high range)", "high bid", "cpc_high_top_of_page"],
             "currency": ["currency", "currency code"],
             "yoy_change": ["yoy change", "year-over-year change"],
             "three_month_change": ["three month change"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
     },
     "serp": {
@@ -101,6 +109,8 @@ SCHEMAS = {
                 title VARCHAR,
                 url VARCHAR,
                 description VARCHAR,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -111,7 +121,32 @@ SCHEMAS = {
             "title": ["title", "nadpis"],
             "url": ["url", "link", "odkaz"],
             "description": ["description", "snippet", "popis"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
+    },
+    "serp_status": {
+        "description": "Google SERP execution status tracker",
+        "create": """
+            CREATE TABLE IF NOT EXISTS serp_status (
+                keyword VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                error_message VARCHAR,
+                results_count INTEGER,
+                language VARCHAR,
+                country VARCHAR,
+                imported_at TIMESTAMP DEFAULT current_timestamp,
+                downloaded_at DATE
+            )
+        """,
+        "columns": {
+            "keyword": ["keyword", "query", "klíčové slovo"],
+            "status": ["status", "stav"],
+            "error_message": ["error_message", "error", "chyba"],
+            "results_count": ["results_count", "results", "počet"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
+        }
     },
     "suggestions": {
         "description": "Google Autocomplete / Suggest results",
@@ -121,6 +156,8 @@ SCHEMAS = {
                 suggestion VARCHAR NOT NULL,
                 position INTEGER,
                 modifier VARCHAR,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -130,6 +167,8 @@ SCHEMAS = {
             "suggestion": ["suggestion", "suggest", "autocomplete", "návrh"],
             "position": ["position", "rank", "pozice"],
             "modifier": ["modifier", "prefix", "suffix"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
     },
     "related_queries": {
@@ -139,6 +178,8 @@ SCHEMAS = {
                 seed_keyword VARCHAR NOT NULL,
                 related_query VARCHAR NOT NULL,
                 position INTEGER,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -147,6 +188,8 @@ SCHEMAS = {
             "seed_keyword": ["seed_keyword", "seed", "keyword", "query"],
             "related_query": ["related_query", "related", "query", "související dotaz"],
             "position": ["position", "rank", "pozice"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
     },
     "people_also_ask": {
@@ -158,6 +201,8 @@ SCHEMAS = {
                 position INTEGER,
                 answer_snippet VARCHAR,
                 source_url VARCHAR,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -168,6 +213,8 @@ SCHEMAS = {
             "position": ["position", "rank", "pozice"],
             "answer_snippet": ["answer", "snippet", "answer_snippet"],
             "source_url": ["source_url", "url", "source"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc"],
         },
     },
     "search_console": {
@@ -183,6 +230,7 @@ SCHEMAS = {
                 country VARCHAR,
                 device VARCHAR,
                 date DATE,
+                language VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -197,6 +245,7 @@ SCHEMAS = {
             "country": ["country", "země"],
             "device": ["device", "zařízení"],
             "date": ["date", "datum"],
+            "language": ["language", "jazyk", "lang"],
         },
     },
     "competitor_keywords": {
@@ -217,6 +266,8 @@ SCHEMAS = {
                 etv DOUBLE,
                 is_paid BOOLEAN,
                 monthly_searches_json VARCHAR,
+                language VARCHAR,
+                country VARCHAR,
                 imported_at TIMESTAMP DEFAULT current_timestamp,
                 downloaded_at DATE
             )
@@ -236,6 +287,8 @@ SCHEMAS = {
             "etv": ["etv", "estimated_traffic"],
             "is_paid": ["is_paid"],
             "monthly_searches_json": ["monthly_searches_json", "monthly_searches"],
+            "language": ["language", "jazyk", "lang"],
+            "country": ["country", "země", "geo", "loc", "location"],
         },
     },
 }

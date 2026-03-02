@@ -284,7 +284,13 @@ async def _scrape(query: str, lang: str, country: str, num: int) -> dict:
 
 
 def scrape(query: str, lang: str = 'cs', country: str = 'cz', num: int = 10) -> dict:
-    return asyncio.run(_scrape(query, lang, country, num))
+    try:
+        data = asyncio.run(_scrape(query, lang, country, num))
+        data['status'] = 'SUCCESS'
+        data['error'] = ''
+        return data
+    except Exception as e:
+        return {'organic': [], 'paa': [], 'related': [], 'status': 'ERROR', 'error': str(e)}
 
 
 def scrape_with_pause(query: str, lang: str = 'cs', country: str = 'cz',
@@ -358,7 +364,7 @@ def print_results(data: dict, query: str):
 
 # ── CSV export ───────────────────────────────────────────────────────────────
 
-def save_csv(data: dict, query: str, output_dir: str) -> list[str]:
+def save_csv(data: dict, query: str, output_dir: str, lang: str = 'cs', country: str = 'cz') -> list[str]:
     out = Path(output_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -369,9 +375,12 @@ def save_csv(data: dict, query: str, output_dir: str) -> list[str]:
     if data['organic']:
         p = out / f"serp_organic_{slug}_{ts}.csv"
         with open(p, 'w', newline='', encoding='utf-8') as f:
-            w = csv.DictWriter(f, fieldnames=['position', 'title', 'description', 'url'])
+            w = csv.DictWriter(f, fieldnames=['position', 'title', 'description', 'url', 'language', 'country'])
             w.writeheader()
-            w.writerows(data['organic'])
+            for row in data['organic']:
+                row['language'] = lang
+                row['country'] = country
+                w.writerow(row)
         paths.append(str(p))
         print(f"Organic CSV: {p}")
 
@@ -380,9 +389,9 @@ def save_csv(data: dict, query: str, output_dir: str) -> list[str]:
         p = out / f"serp_paa_{slug}_{ts}.csv"
         with open(p, 'w', newline='', encoding='utf-8') as f:
             w = csv.writer(f)
-            w.writerow(['position', 'question'])
+            w.writerow(['position', 'question', 'language', 'country'])
             for i, q in enumerate(data['paa'], 1):
-                w.writerow([i, q])
+                w.writerow([i, q, lang, country])
         paths.append(str(p))
         print(f"PAA CSV:     {p}")
 
@@ -391,11 +400,25 @@ def save_csv(data: dict, query: str, output_dir: str) -> list[str]:
         p = out / f"serp_related_{slug}_{ts}.csv"
         with open(p, 'w', newline='', encoding='utf-8') as f:
             w = csv.writer(f)
-            w.writerow(['position', 'query'])
+            w.writerow(['position', 'query', 'language', 'country'])
             for i, x in enumerate(data['related'], 1):
-                w.writerow([i, x])
+                w.writerow([i, x, lang, country])
         paths.append(str(p))
-        print(f"Related CSV: {p}")
+    # Status
+    p = out / f"serp_status_{slug}_{ts}.csv"
+    with open(p, 'w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=['keyword', 'status', 'error_message', 'results_count', 'language', 'country'])
+        w.writeheader()
+        w.writerow({
+            'keyword': query,
+            'status': data.get('status', 'SUCCESS'),
+            'error_message': data.get('error', ''),
+            'results_count': len(data.get('organic', [])),
+            'language': lang,
+            'country': country,
+        })
+    paths.append(str(p))
+    print(f"Status CSV:  {p}")
 
     return paths
 
@@ -427,7 +450,7 @@ def main():
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
     if not args.no_csv:
-        save_csv(data, args.query, args.output)
+        save_csv(data, args.query, args.output, lang=args.lang, country=args.country)
 
 
 if __name__ == '__main__':

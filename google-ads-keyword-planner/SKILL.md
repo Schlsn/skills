@@ -13,13 +13,11 @@ The Google Ads Keyword Planner API (`KeywordPlanIdeaService`) is a **separate se
 
 ### Prerequisites
 
-1. **SDK installed**: `pip3 install google-ads google-auth-oauthlib --break-system-packages`
-2. **Credentials Setup**: If you don't have a valid `google-ads.yaml`, run the setup script:
-   ```bash
-   python3 ~/.agents/skills/google-ads-keyword-planner/scripts/setup_credentials.py
-   ```
-   *This will open a browser window to authenticate and generate a refresh token. You'll need your GCP OAuth Client ID/Secret and your Google Ads Developer Token.*
-3. **Customer ID**: The account to bill the query against (not necessarily the account being researched)
+1. **SDK installed**: `pip3 install google-ads`
+2. **Credentials Setup**: We use the pre-configured **Service Account** to avoid OAuth token expiration issues.
+   - Config file: `/Users/adam/Documents/credentials/google-ads-service-account.yaml`
+   - Service Account: `data-pipeline@pronatal-487209.iam.gserviceaccount.com`
+3. **Customer ID MUST be MCC**: Because the API enforces quotas on the original Developer Token project, you **must query the MCC directly** (`1764032686`), not the sub-accounts!
 
 ---
 
@@ -28,17 +26,20 @@ The Google Ads Keyword Planner API (`KeywordPlanIdeaService`) is a **separate se
 ```python
 from google.ads.googleads.client import GoogleAdsClient
 
-client = GoogleAdsClient.load_from_storage("/Users/adam/Documents/credentials/google-ads.yaml")
+# STRICT RULE: Must use the Service Account YAML, not the standard OAuth YAML
+client = GoogleAdsClient.load_from_storage("/Users/adam/Documents/credentials/google-ads-service-account.yaml")
 kp_idea_service = client.get_service("KeywordPlanIdeaService")
 ga_service = client.get_service("GoogleAdsService")
 
-def get_keyword_ideas(customer_id, language_id, geo_ids, seed_keywords):
+def get_keyword_ideas(language_id, geo_ids, seed_keywords):
     """
-    customer_id   : str  — Google Ads account ID (digits only, no dashes)
+    customer_id is hardcoded to MCC (1764032686) because of Developer Token quota enforcement constraints.
     language_id   : str  — see Language IDs table below
     geo_ids       : list — see Geo IDs table below
     seed_keywords : list — max 20 items per call
     """
+    customer_id = "1764032686"
+
     request = client.get_type("GenerateKeywordIdeasRequest")
     request.customer_id = customer_id
     request.language = ga_service.language_constant_path(language_id)
