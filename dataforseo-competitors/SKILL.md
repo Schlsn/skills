@@ -111,6 +111,15 @@ WHERE competitor_domain = 'pronatal.cz'
 GROUP BY search_intent ORDER BY cnt DESC;
 ```
 
+## AI Instructions
+
+**CRITICAL: Freshness Check Before Fetching**
+Before running the `competitor_keywords.py` script to fetch data from the API, you MUST check the DuckDB database to see if data for the requested `competitor_domain` already exists and is less than 30 days old.
+
+1. Query DuckDB to check the `downloaded_at` date for the domain.
+2. If fresh data (< 30 days old) exists, DO NOT run the fetch script. Skip processing this domain to save API credits.
+3. If no data exists, or if it is older than 30 days, proceed with the fetch.
+
 ## Notes
 
 - API filter `rank_absolute <= 20` is applied server-side (efficient, no wasted credits)

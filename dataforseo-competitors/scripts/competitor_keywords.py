@@ -174,53 +174,9 @@ def _parse_item(item: dict, domain: str) -> dict:
         "etv": serp_item.get("etv"),
         "is_paid": serp_item.get("is_paid"),
         "monthly_searches_json": monthly_json,
-    }
-
-
-# ── Freshness check ────────────────────────────────────────────────────────
+# ── DuckDB storage ─────────────────────────────────────────────────────────
 
 DB_BASE = Path.home() / "kw_projects"
-
-
-def check_freshness(project: str, domain: str, max_age_days: int = 30) -> dict | None:
-    """
-    Check if fresh data already exists for this domain in DuckDB.
-
-    Returns a summary dict if fresh data found, None otherwise.
-    """
-    db_path = DB_BASE / f"{project}.duckdb"
-    if not db_path.exists():
-        return None
-
-    try:
-        import duckdb
-        con = duckdb.connect(str(db_path))
-        result = con.sql(f"""
-            SELECT
-                COUNT(*) AS total_rows,
-                MAX(downloaded_at) AS last_download,
-                MAX(imported_at) AS last_import,
-                SUM(search_volume) AS total_volume
-            FROM competitor_keywords
-            WHERE competitor_domain = '{domain}'
-              AND downloaded_at >= CURRENT_DATE - INTERVAL '{max_age_days}' DAY
-        """).fetchone()
-        con.close()
-
-        if result and result[0] > 0:
-            return {
-                'rows': result[0],
-                'last_download': str(result[1]),
-                'last_import': str(result[2]),
-                'total_volume': result[3],
-            }
-    except Exception:
-        pass
-
-    return None
-
-
-# ── DuckDB storage ─────────────────────────────────────────────────────────
 
 COMPETITOR_KEYWORDS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS competitor_keywords (
@@ -367,21 +323,7 @@ def main():
     parser.add_argument("--date", default=None,
                         help="Download date for DuckDB (YYYY-MM-DD, default: today)")
 
-    parser.add_argument("--force", action="store_true",
-                        help="Skip freshness check and fetch anyway")
-
     args = parser.parse_args()
-
-    # Freshness check — skip if data < 30 days old
-    if not args.force:
-        existing = check_freshness(args.project, args.domain)
-        if existing:
-            print(f"⏭  Fresh data already exists for '{args.domain}':")
-            print(f"   Rows: {existing['rows']:,}")
-            print(f"   Last download: {existing['last_download']}")
-            print(f"   Total volume: {existing['total_volume']:,}")
-            print(f"   Use --force to re-download anyway.")
-            sys.exit(0)
 
     print(f"Fetching top-20 keywords for: {args.domain}")
     print(f"Location: {args.location}, Language: {args.language}, Limit: {args.limit}")
