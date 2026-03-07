@@ -1,0 +1,104 @@
+{
+  "name": "Sub-Workflow: Google Autocomplete",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e604f32a-d621-4d1f-8ba5-18db054a8e21",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://suggestqueries.google.com/complete/search?client=chrome&hl={{ $json.language || 'en' }}&gl={{ $json.country || 'us' }}&q={{ encodeURIComponent($json.search_query) }}",
+        "options": {}
+      },
+      "id": "9a38fbe6-3ab1-477d-94ac-7521c761bb22",
+      "name": "Google Autocomplete API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputData = $node[\"Execute Workflow Trigger\"].json;\nconst apiResponse = $input.first().json;\n\n// API returns array: [\"query\", [\"sugg1\", \"sugg2\", ...], ...]\nconst suggestions = Array.isArray(apiResponse) && apiResponse.length > 1 ? apiResponse[1] : [];\n\nreturn {\n  json: {\n    search_query: inputData.search_query,\n    language: inputData.language || 'en',\n    country: inputData.country || 'us',\n    suggestions: suggestions\n  }\n};"
+      },
+      "id": "6d3a8e97-15e8-4660-8fe8-d6ab2f61a155",
+      "name": "Parse Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "seo_kws",
+        "table": "google_autocomplete",
+        "columns": "search_query, language, country, suggestions",
+        "options": {}
+      },
+      "id": "5bcbea61-9c60-4965-a681-37d4554b50c3",
+      "name": "Save to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "2",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Autocomplete API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Autocomplete API": {
+      "main": [
+        [
+          {
+            "node": "Parse Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Output": {
+      "main": [
+        [
+          {
+            "node": "Save to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

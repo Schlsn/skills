@@ -22,6 +22,61 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# ── Cache directory ─────────────────────────────────────────────────────────
+# All API results are saved here immediately after fetch, before DuckDB write.
+# Naming: ~/dataforseo_cache/competitor_keywords/YYYY-MM-DD_<domain>.csv
+CACHE_DIR = Path.home() / "dataforseo_cache" / "competitor_keywords"
+
+
+def _cache_path(domain: str, date: str) -> Path:
+    safe_domain = domain.replace("/", "_").replace(":", "_")
+    return CACHE_DIR / f"{date}_{safe_domain}.csv"
+
+
+def save_cache(items: list[dict], domain: str, date: str) -> Path:
+    """Save fetched items to cache CSV immediately after API call."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cache_path(domain, date)
+    fieldnames = [
+        "competitor_domain", "keyword", "search_volume", "competition",
+        "cpc", "search_intent", "rank_absolute", "serp_type", "url",
+        "title", "description", "etv", "is_paid", "monthly_searches_json",
+        "language", "country",
+    ]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(items)
+    return path
+
+
+def load_cache(domain: str, date: str) -> list[dict] | None:
+    """Load cached items for a domain/date. Returns None if no cache exists."""
+    path = _cache_path(domain, date)
+    if not path.exists():
+        return None
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    # Cast numeric fields back from string
+    int_fields = {"search_volume", "rank_absolute"}
+    float_fields = {"competition", "cpc", "etv"}
+    bool_fields = {"is_paid"}
+    for row in rows:
+        for fld in int_fields:
+            if row.get(fld) not in (None, "", "None"):
+                row[fld] = int(float(row[fld]))
+            else:
+                row[fld] = None
+        for fld in float_fields:
+            if row.get(fld) not in (None, "", "None"):
+                row[fld] = float(row[fld])
+            else:
+                row[fld] = None
+        for fld in bool_fields:
+            row[fld] = row.get(fld, "").lower() in ("true", "1", "yes")
+    return rows
+
 # ── DataForSEO credentials ─────────────────────────────────────────────────
 
 CONFIG_PATH = Path.home() / ".dataforseo_config.json"
@@ -335,29 +390,43 @@ def main():
 
     args = parser.parse_args()
 
+    dl_date = args.date or datetime.now().strftime("%Y-%m-%d")
+
     print(f"Fetching top-20 keywords for: {args.domain}")
     print(f"Location: {args.location}, Language: {args.language}, Limit: {args.limit}")
     print("─" * 60)
 
-    # Fetch from API
-    items = fetch_competitor_keywords(
-        domain=args.domain,
-        location_code=args.location,
-        language_code=args.language,
-        limit=args.limit,
-    )
+    # 1. Check cache first
+    cached = load_cache(args.domain, dl_date)
+    if cached:
+        cache_path = _cache_path(args.domain, dl_date)
+        print(f"✓ Cache hit — loading {len(cached)} keywords from {cache_path}")
+        print("  (skipping API call)")
+        items = cached
+    else:
+        # 2. Fetch from API
+        items = fetch_competitor_keywords(
+            domain=args.domain,
+            location_code=args.location,
+            language_code=args.language,
+            limit=args.limit,
+        )
 
-    if not items:
-        print("No keywords found.")
-        sys.exit(0)
+        if not items:
+            print("No keywords found.")
+            sys.exit(0)
+
+        # 3. Save to cache immediately — before any DuckDB write
+        cache_path = save_cache(items, args.domain, dl_date)
+        print(f"✓ Saved to cache: {cache_path}")
 
     print("─" * 60)
 
-    # Store to DuckDB
-    result = store_to_duckdb(args.project, items, downloaded_at=args.date)
+    # 4. Store to DuckDB
+    result = store_to_duckdb(args.project, items, downloaded_at=dl_date)
     print(result)
 
-    # Optional CSV export
+    # 5. Optional CSV export
     if args.csv:
         csv_result = export_csv(items, args.csv)
         print(csv_result)
