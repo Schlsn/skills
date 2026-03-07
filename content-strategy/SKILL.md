@@ -1,358 +1,305 @@
 ---
 name: content-strategy
-description: When the user wants to plan a content strategy, decide what content to create, or figure out what topics to cover. Also use when the user mentions "content strategy," "what should I write about," "content ideas," "blog strategy," "topic clusters," or "content planning." For writing individual pieces, see copywriting. For SEO-specific audits, see seo-audit.
+description: "Use when the user wants to create a topical map, content pillars, topic clusters, or a phased content calendar. Triggers: \"content strategy\", \"topical map\", \"content pillars\", \"topic clusters\", \"what should I write\", \"content plan\", \"content calendar\", \"blog strategy\". This skill produces a structured blueprint — it does NOT write the actual articles. For writing individual pieces, see copywriting. For SEO audits, see seo-audit."
 metadata:
-  version: 1.0.0
+  version: 2.0.0
 ---
 
-# Content Strategy
+# Topical Map & Content Pillars
 
-You are a content strategist. Your goal is to help plan content that drives traffic, builds authority, and generates leads by being either searchable, shareable, or both.
-
-## Before Planning
-
-**Check for product marketing context first:**
-If `.claude/product-marketing-context.md` exists, read it before asking questions. Use that context and only ask for information not already covered or specific to this task.
-
-Gather this context (ask if not provided):
-
-### 1. Business Context
-- What does the company do?
-- Who is the ideal customer?
-- What's the primary goal for content? (traffic, leads, brand awareness, thought leadership)
-- What problems does your product solve?
-
-### 2. Customer Research
-- What questions do customers ask before buying?
-- What objections come up in sales calls?
-- What topics appear repeatedly in support tickets?
-- What language do customers use to describe their problems?
-
-### 3. Current State
-- Do you have existing content? What's working?
-- What resources do you have? (writers, budget, time)
-- What content formats can you produce? (written, video, audio)
-
-### 4. Competitive Landscape
-- Who are your main competitors?
-- What content gaps exist in your market?
+You are a strategic SEO content planner. Your goal is to produce a complete **topical map** — a structured blueprint that organises a website's content into pillars and clusters so that search engines perceive the site as a topical authority. The map tells the user **what to write, which keywords to target, and how to structure the site**; it does not produce the articles themselves.
 
 ---
 
-## Searchable vs Shareable
+## Phase 1: Data Collection & Input Definition
 
-Every piece of content must be searchable, shareable, or both. Prioritize in that order—search traffic is the foundation.
+Before building the map you need context and data. A quality topical map is built from market analysis, not guesswork.
 
-**Searchable content** captures existing demand. Optimized for people actively looking for answers.
+### 1.1 Core Business Inputs (Ask if not provided)
 
-**Shareable content** creates demand. Spreads ideas and gets people talking.
+| Input | Example |
+|-------|---------|
+| **Niche / Industry** | IVF clinics, SaaS project management, coffee e-shop… |
+| **Target Audience** | Couples dealing with infertility aged 30–42, CTOs of small teams… |
+| **Content Goals** | Organic traffic, leads, authority building, affiliate revenue… |
+| **Own Domain** (optional) | pronatal.cz — not needed if planning a brand-new site |
+| **Competitor Domains** (optional) | gennet.cz, ivfcube.cz — for gap analysis |
+| **Language & Market** | cs/CZ, en/US, de/DE… |
 
-### When Writing Searchable Content
+### 1.2 Data Sources for Deep Research
 
-- Target a specific keyword or question
-- Match search intent exactly—answer what the searcher wants
-- Use clear titles that match search queries
-- Structure with headings that mirror search patterns
-- Place keywords in title, headings, first paragraph, URL
-- Provide comprehensive coverage (don't leave questions unanswered)
-- Include data, examples, and links to authoritative sources
-- Optimize for AI/LLM discovery: clear positioning, structured content, brand consistency across the web
+A quality map relies on **real SEO data**, not guessing:
 
-### When Writing Shareable Content
+| Source | What It Provides | Relevant Skill |
+|--------|-----------------|----------------|
+| **Google Ads Keyword Planner** | Search volume, CPC, competition, keyword ideas | `google-ads-keyword-planner` |
+| **Google Autocomplete / Suggest** | Long-tail variations, intent signals, user questions | `google-autocomplete` |
+| **Google SERP Scrape** | Organic results, PAA (People Also Ask), Related Searches | `google-serp` |
+| **DataForSEO Competitors** | Competitor keywords (top 20), search volume, KD, intent | `dataforseo-competitors` |
+| **Google Search Console** | CTR, positions, impressions for existing sites | `duckdb-keywords` (table `search_console`) |
+| **DuckDB Keywords** | Central storage for all keyword data per project | `duckdb-keywords` |
+| **Keyword Categorization** | Semantic clustering of keywords into categories | `keyword-categorization` |
+| **PostgreSQL (Hetzner)** | SERP data, competitor keywords — `seo_kws.*` and `seo.competitor_keywords` | `google-serp`, `dataforseo-competitors` |
 
-- Lead with a novel insight, original data, or counterintuitive take
-- Challenge conventional wisdom with well-reasoned arguments
-- Tell stories that make people feel something
-- Create content people want to share to look smart or help others
-- Connect to current trends or emerging problems
-- Share vulnerable, honest experiences others can learn from
+### 1.3 Customer & Qualitative Data
 
----
+- **Sales call transcripts** — look for the exact words customers use
+- **Support tickets** — recurring questions and frustrations
+- **Surveys / NPS** — specific problems and wishes
+- **Forums & communities** — Reddit, Quora, industry groups (real frustrations and questions)
 
-## Content Types
+### 1.4 Data Collection Workflow (Database-First)
 
-### Searchable Content Types
+**Always check existing data in PostgreSQL and DuckDB before fetching anything new.** Only run fetch scripts for data sources where no recent data (< 30 days) exists.
 
-**Use-Case Content**
-Formula: [persona] + [use-case]. Targets long-tail keywords.
-- "Project management for designers"
-- "Task tracking for developers"
-- "Client collaboration for freelancers"
+#### Step 1 — Audit existing data
 
-**Hub and Spoke**
-Hub = comprehensive overview. Spokes = related subtopics.
-```
-/topic (hub)
-├── /topic/subtopic-1 (spoke)
-├── /topic/subtopic-2 (spoke)
-└── /topic/subtopic-3 (spoke)
-```
-Create hub first, then build spokes. Interlink strategically.
+Run these queries via SSH to see what data already exists for the project:
 
-**Note:** Most content works fine under `/blog`. Only use dedicated hub/spoke URL structures for major topics with layered depth (e.g., Atlassian's `/agile` guide). For typical blog posts, `/blog/post-title` is sufficient.
+```bash
+# Competitor keywords in PostgreSQL
+ssh hetzner-n8n "docker exec n8n-stack-postgres-1 psql -U n8n -d n8n -c \"
+  SELECT competitor_domain, COUNT(*) AS keywords, MAX(downloaded_at) AS last_fetch,
+         NOW()::date - MAX(downloaded_at) AS days_old
+  FROM seo.competitor_keywords
+  WHERE project = '<PROJECT>'
+  GROUP BY competitor_domain
+  ORDER BY last_fetch DESC;
+\""
 
-**Template Libraries**
-High-intent keywords + product adoption.
-- Target searches like "marketing plan template"
-- Provide immediate standalone value
-- Show how product enhances the template
+# SERP data in PostgreSQL
+ssh hetzner-n8n "docker exec n8n-stack-postgres-1 psql -U n8n -d n8n -c \"
+  SELECT j.id, j.name, j.status, j.total_keywords, j.completed_keywords,
+         c.slug AS client, j.created_at::date
+  FROM seo_kws.jobs j
+  JOIN seo_kws.clients c ON c.id = j.client_id
+  WHERE c.slug = '<PROJECT>'
+  ORDER BY j.id DESC LIMIT 10;
+\""
 
-### Shareable Content Types
-
-**Thought Leadership**
-- Articulate concepts everyone feels but hasn't named
-- Challenge conventional wisdom with evidence
-- Share vulnerable, honest experiences
-
-**Data-Driven Content**
-- Product data analysis (anonymized insights)
-- Public data analysis (uncover patterns)
-- Original research (run experiments, share results)
-
-**Expert Roundups**
-15-30 experts answering one specific question. Built-in distribution.
-
-**Case Studies**
-Structure: Challenge → Solution → Results → Key learnings
-
-**Meta Content**
-Behind-the-scenes transparency. "How We Got Our First $5k MRR," "Why We Chose Debt Over VC."
-
-For programmatic content at scale, see **programmatic-seo** skill.
-
----
-
-## Content Pillars and Topic Clusters
-
-Content pillars are the 3-5 core topics your brand will own. Each pillar spawns a cluster of related content.
-
-Most of the time, all content can live under `/blog` with good internal linking between related posts. Dedicated pillar pages with custom URL structures (like `/guides/topic`) are only needed when you're building comprehensive resources with multiple layers of depth.
-
-### How to Identify Pillars
-
-1. **Product-led**: What problems does your product solve?
-2. **Audience-led**: What does your ICP need to learn?
-3. **Search-led**: What topics have volume in your space?
-4. **Competitor-led**: What are competitors ranking for?
-
-### Pillar Structure
-
-```
-Pillar Topic (Hub)
-├── Subtopic Cluster 1
-│   ├── Article A
-│   ├── Article B
-│   └── Article C
-├── Subtopic Cluster 2
-│   ├── Article D
-│   ├── Article E
-│   └── Article F
-└── Subtopic Cluster 3
-    ├── Article G
-    ├── Article H
-    └── Article I
+# DuckDB local data
+python3 duckdb-keywords/scripts/kw_db.py tables <PROJECT>
 ```
 
-### Pillar Criteria
+#### Step 2 — Identify gaps
 
-Good pillars should:
-- Align with your product/service
-- Match what your audience cares about
-- Have search volume and/or social interest
-- Be broad enough for many subtopics
+Based on the audit, determine which data sources are **missing or stale** (> 30 days old):
 
----
+| Data Source | Where to Check | What's Missing? |
+|-------------|---------------|-----------------|
+| Competitor keywords | `seo.competitor_keywords` (PostgreSQL) | No rows for key competitors, or `downloaded_at` > 30 days |
+| SERP organic + PAA + Related | `seo_kws.serp_organic` / `serp_paa` / `serp_related` (PostgreSQL) | No completed job for the project, or old data |
+| Google Ads / Keyword Planner | `duckdb-keywords` tables `google_ads`, `keyword_planner` | Empty tables or old `downloaded_at` |
+| Autocomplete suggestions | `duckdb-keywords` table `suggestions` | Empty table |
+| Search Console | `duckdb-keywords` table `search_console` | Empty table (only available for existing sites) |
 
-## Keyword Research by Buyer Stage
+#### Step 3 — Fetch only what's missing
 
-Map topics to the buyer's journey using proven keyword modifiers:
+For each gap identified above, run the corresponding skill:
 
-### Awareness Stage
-Modifiers: "what is," "how to," "guide to," "introduction to"
+1. **Missing autocomplete data** → Run `google-autocomplete` for 5–10 seed keywords
+2. **Missing search volumes** → Run `google-ads-keyword-planner` with seed keywords
+3. **Missing competitor data** → Run `dataforseo-competitors` for 2–3 competitors (respects 30-day freshness check)
+4. **Missing SERP data** → Run `google-serp` (ingest 20–30 keywords via n8n webhook)
+5. **Import any new results** into `duckdb-keywords` project
 
-Example: If customers ask about project management basics:
-- "What is Agile Project Management"
-- "Guide to Sprint Planning"
-- "How to Run a Standup Meeting"
+#### Step 4 — Cluster and analyse
 
-### Consideration Stage
-Modifiers: "best," "top," "vs," "alternatives," "comparison"
-
-Example: If customers evaluate multiple tools:
-- "Best Project Management Tools for Remote Teams"
-- "Asana vs Trello vs Monday"
-- "Basecamp Alternatives"
-
-### Decision Stage
-Modifiers: "pricing," "reviews," "demo," "trial," "buy"
-
-Example: If pricing comes up in sales calls:
-- "Project Management Tool Pricing Comparison"
-- "How to Choose the Right Plan"
-- "[Product] Reviews"
-
-### Implementation Stage
-Modifiers: "templates," "examples," "tutorial," "how to use," "setup"
-
-Example: If support tickets show implementation struggles:
-- "Project Template Library"
-- "Step-by-Step Setup Tutorial"
-- "How to Use [Feature]"
+6. **Run `keyword-categorization`** on the merged CSV → semantic clusters as the foundation for pillars
 
 ---
 
-## Content Ideation Sources
+## Phase 2: Defining Content Pillars
 
-### 1. Keyword Data
+The goal is to identify **3–5 main pillars** (up to 10 for larger sites) — overarching topics in which you want to be perceived as an authority. Pillars become your "Hub" pages.
 
-If user provides keyword exports (Ahrefs, SEMrush, GSC), analyze for:
-- Topic clusters (group related keywords)
-- Buyer stage (awareness/consideration/decision/implementation)
-- Search intent (informational, commercial, transactional)
-- Quick wins (low competition + decent volume + high relevance)
-- Content gaps (keywords competitors rank for that you don't)
+### 2.1 How to Identify the Right Pillars
 
-Output as prioritized table:
-| Keyword | Volume | Difficulty | Buyer Stage | Content Type | Priority |
+| Approach | Guiding Question |
+|----------|-----------------|
+| **Product-led** | What main categories of problems does your product solve? |
+| **Audience-led** | What does your ideal customer need to learn to succeed? |
+| **Search-led** | Which broad, high-volume topics have the biggest potential in your niche? |
+| **Competitor-led** | Which topics are your competitors building authority on? |
 
-### 2. Call Transcripts
+### 2.2 Good Pillar Criteria
 
-If user provides sales or customer call transcripts, extract:
-- Questions asked → FAQ content or blog posts
-- Pain points → problems in their own words
-- Objections → content to address proactively
-- Language patterns → exact phrases to use (voice of customer)
-- Competitor mentions → what they compared you to
+Each pillar must be:
+- ✅ **Broad enough** — can be broken down into dozens of subtopics
+- ✅ **Highly relevant** — directly related to your business
+- ✅ **Searched** — has search volume and/or social interest
+- ✅ **Distinct** — clearly differentiated from other pillars
 
-Output content ideas with supporting quotes.
+### 2.3 Pillar Output Format
 
-### 3. Survey Responses
+For each pillar, provide:
 
-If user provides survey data, mine for:
-- Open-ended responses (topics and language)
-- Common themes (30%+ mention = high priority)
-- Resource requests (what they wish existed)
-- Content preferences (formats they want)
-
-### 4. Forum Research
-
-Use web search to find content ideas:
-
-**Reddit:** `site:reddit.com [topic]`
-- Top posts in relevant subreddits
-- Questions and frustrations in comments
-- Upvoted answers (validates what resonates)
-
-**Quora:** `site:quora.com [topic]`
-- Most-followed questions
-- Highly upvoted answers
-
-**Other:** Indie Hackers, Hacker News, Product Hunt, industry Slack/Discord
-
-Extract: FAQs, misconceptions, debates, problems being solved, terminology used.
-
-### 5. Competitor Analysis
-
-Use web search to analyze competitor content:
-
-**Find their content:** `site:competitor.com/blog`
-
-**Analyze:**
-- Top-performing posts (comments, shares)
-- Topics covered repeatedly
-- Gaps they haven't covered
-- Case studies (customer problems, use cases, results)
-- Content structure (pillars, categories, formats)
-
-**Identify opportunities:**
-- Topics you can cover better
-- Angles they're missing
-- Outdated content to improve on
-
-### 6. Sales and Support Input
-
-Extract from customer-facing teams:
-- Common objections
-- Repeated questions
-- Support ticket patterns
-- Success stories
-- Feature requests and underlying problems
+| Field | Description |
+|-------|-------------|
+| Pillar name | Short, natural name (not a raw keyword) |
+| Primary keyword | Target keyword for the Hub page |
+| Search Volume | Monthly search volume |
+| KD (Keyword Difficulty) | Difficulty score (0–100) |
+| Planned cluster articles | Number of articles planned under this pillar |
+| Product connection | How the pillar naturally leads to your product/service |
 
 ---
 
-## Prioritizing Content Ideas
+## Phase 3: Building Article Clusters
 
-Score each idea on four factors:
+Around each pillar, create a cluster of supporting articles targeting specific long-tail keywords. The map should contain **50–100+ article ideas** to start with.
 
-### 1. Customer Impact (40%)
-- How frequently did this topic come up in research?
-- What percentage of customers face this challenge?
-- How emotionally charged was this pain point?
-- What's the potential LTV of customers with this need?
+### 3.1 Classification by Buyer Stage
 
-### 2. Content-Market Fit (30%)
-- Does this align with problems your product solves?
-- Can you offer unique insights from customer research?
-- Do you have customer stories to support this?
-- Will this naturally lead to product interest?
+| Stage | Query Type | Modifiers | Example |
+|-------|-----------|-----------|---------|
+| **Awareness** | Informational | what is, how to, guide, introduction | "What is IVF and how does it work" |
+| **Consideration** | Comparative | best, alternatives, vs, comparison | "Best IVF clinics in Prague" |
+| **Decision** | Conversion | pricing, reviews, buy, order | "IVF clinic pricing 2026" |
+| **Implementation** | Practical | template, tutorial, setup, step-by-step | "IVF preparation step by step" |
 
-### 3. Search Potential (20%)
-- What's the monthly search volume?
-- How competitive is this topic?
-- Are there related long-tail opportunities?
-- Is search interest growing or declining?
+### 3.2 Distribution Type
 
-### 4. Resource Requirements (10%)
-- Do you have expertise to create authoritative content?
-- What additional research is needed?
-- What assets (graphics, data, examples) will you need?
+| Type | Characteristics | Example |
+|------|----------------|---------|
+| **Searchable** | Keyword-targeted, answers a query, optimised for Google | "How does artificial insemination work" |
+| **Shareable** | Original data, thought leadership, myth-busting, social-first | "5 IVF myths people still believe" |
 
-### Scoring Template
+### 3.3 Article Output Format
 
-| Idea | Customer Impact (40%) | Content-Market Fit (30%) | Search Potential (20%) | Resources (10%) | Total |
-|------|----------------------|-------------------------|----------------------|-----------------|-------|
-| Topic A | 8 | 9 | 7 | 6 | 8.0 |
-| Topic B | 6 | 7 | 9 | 8 | 7.1 |
+For each article in a cluster, provide:
 
----
-
-## Output Format
-
-When creating a content strategy, provide:
-
-### 1. Content Pillars
-- 3-5 pillars with rationale
-- Subtopic clusters for each pillar
-- How pillars connect to product
-
-### 2. Priority Topics
-For each recommended piece:
-- Topic/title
-- Searchable, shareable, or both
-- Content type (use-case, hub/spoke, thought leadership, etc.)
-- Target keyword and buyer stage
-- Why this topic (customer research backing)
-
-### 3. Topic Cluster Map
-Visual or structured representation of how content interconnects.
+| Field | Description |
+|-------|-------------|
+| Parent pillar | Which pillar this article belongs to |
+| Article title | Working title |
+| Target keyword | Primary keyword |
+| Search Volume | Monthly search volume |
+| KD (Keyword Difficulty) | Difficulty (0–100) |
+| Buyer stage | Awareness / Consideration / Decision / Implementation |
+| Distribution type | Searchable / Shareable / Both |
+| Content type | Informational, commercial, lead magnet, case study, data-driven… |
+| Publishing phase | 1 / 2 / 3 / 4 (see Phase 5) |
 
 ---
 
-## Task-Specific Questions
+## Phase 4: Semantic Structure & Internal Linking
 
-1. What patterns emerge from your last 10 customer conversations?
-2. What questions keep coming up in sales calls?
-3. Where are competitors' content efforts falling short?
-4. What unique insights from customer research aren't being shared elsewhere?
-5. Which existing content drives the most conversions, and why?
+This step is **critical** for search engines to correctly understand the relationships between your content.
+
+### 4.1 Linking Rules
+
+```
+Pillar A (Hub)
+  ↑ ↑ ↑
+  │ │ │
+  ├── Cluster article A1  ──────────╮
+  ├── Cluster article A2  ─── cross-link ──→  Cluster article B3 (different pillar)
+  └── Cluster article A3  ──────────╯
+```
+
+1. **Upward linking**: All cluster articles link to their parent pillar page (Hub)
+2. **Cross-linking**: Articles also link to each other where topics naturally overlap — even across different pillars
+3. **URL structure**: In most cases `/blog/article-title` suffices. Use dedicated structures like `/topic/subtopic` only for multi-level pillar guides
+
+### 4.2 Structure Visualisation
+
+For each pillar, provide:
+
+```
+Pillar: [Pillar Name]
+Hub page: /blog/main-topic
+├── /blog/cluster-article-1  (Awareness, KD 15, SV 320)
+├── /blog/cluster-article-2  (Consideration, KD 25, SV 210)
+├── /blog/cluster-article-3  (Decision, KD 40, SV 150)
+│   └── cross-link → /blog/article-from-another-pillar
+└── /blog/cluster-article-4  (Implementation, KD 10, SV 90)
+```
 
 ---
 
-## Related Skills
+## Phase 5: Prioritisation & Content Calendar
 
-- **copywriting**: For writing individual content pieces
-- **seo-audit**: For technical SEO and on-page optimization
-- **ai-seo**: For optimizing content for AI search engines and getting cited by LLMs
-- **programmatic-seo**: For scaled content generation
-- **email-sequence**: For email-based content
-- **social-content**: For social media content
+### 5.1 Scoring System for Each Idea
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| **Customer Impact** | 40% | How often the topic appears in research; how strong a pain point it addresses |
+| **Content-Market Fit** | 30% | How naturally the topic leads to your product; whether you have unique expertise |
+| **Search Potential (SEO)** | 20% | Monthly search volume and competition level |
+| **Resource Requirements** | 10% | Time, data, and assets needed to create the content |
+
+### 5.2 Four-Phase Content Calendar
+
+| Phase | Name | What It Contains | Goal |
+|-------|------|-----------------|------|
+| **1** | Quick Wins | Highly relevant informational content with low KD (under 30) | Earn initial traffic, start building search engine trust |
+| **2** | Core Pillars | Launch all 3–5 (up to 10) Hub pages targeting broad, high-volume terms | Capture internal links from Quick Wins, establish pillar structure |
+| **3** | Expansion & Commercial | Consideration + Decision articles: comparisons, alternatives, reviews, use-cases | Move closer to conversion, monetisation |
+| **4** | Authority Building | Hardest keywords (high KD), extensive case studies, data analyses, thought leadership | Attack competitive terms that require an established domain |
+
+---
+
+## Overall Output Format
+
+The final topical map is delivered as a **CSV file** (or table for Google Sheets / Excel) with these columns:
+
+| Column | Description |
+|--------|-------------|
+| `pillar` | Pillar name |
+| `pillar_keyword` | Main keyword of the pillar |
+| `article_title` | Working title of the article |
+| `target_keyword` | Target keyword for the article |
+| `search_volume` | Monthly search volume |
+| `keyword_difficulty` | KD score (0–100) |
+| `buyer_stage` | Awareness / Consideration / Decision / Implementation |
+| `content_type` | blog, guide, comparison, review, case-study, lead-magnet… |
+| `distribution` | Searchable / Shareable / Both |
+| `phase` | 1 / 2 / 3 / 4 |
+| `priority_score` | Overall score (see 5.1) |
+| `internal_links_to` | List of URLs the article links to |
+| `url_slug` | Proposed URL slug |
+
+In addition to the CSV, deliver a **visual overview** (mermaid diagram or structured text tree) mapping the relationships: pillar → clusters → cross-links.
+
+---
+
+## Workflow: Step by Step
+
+1. **Gather inputs** (Phase 1) — ask about niche, audience, goals, competitors, language/market
+2. **Audit existing data** — query PostgreSQL (`seo.competitor_keywords`, `seo_kws.*`) and DuckDB project tables
+3. **Identify gaps** — determine which data sources are missing or stale (> 30 days)
+4. **Fetch only what's missing** — run the corresponding skills:
+   - `google-autocomplete` → long-tail variations
+   - `google-ads-keyword-planner` → search volume, CPC
+   - `dataforseo-competitors` → competitor keywords and gaps
+   - `google-serp` → PAA, Related Searches, SERP landscape
+5. **Import new data** into `duckdb-keywords` project
+6. **Run `keyword-categorization`** → semantic clusters
+7. **Define pillars** (Phase 2) based on clusters and data
+8. **Create article clusters** (Phase 3) with buyer-stage classification
+9. **Design internal linking** (Phase 4)
+10. **Score and prioritise** (Phase 5) → 4-phase calendar
+11. **Export CSV** and visual overview
+
+---
+
+## Data Sources & Related Skills
+
+| Skill | Role in Topical Map |
+|-------|---------------------|
+| `google-autocomplete` | Seed-keyword expansion, question queries |
+| `google-ads-keyword-planner` | Search volume, CPC, competition index |
+| `dataforseo-competitors` | Competitor gap analysis, ranked keywords |
+| `google-serp` | SERP landscape, PAA, Related Searches |
+| `duckdb-keywords` | Central SQL database for all keyword data |
+| `keyword-categorization` | Semantic clustering of keywords into Main/Subcategories |
+| `copywriting` | For writing individual articles |
+| `seo-audit` | For technical SEO and on-page optimisation |
+| `programmatic-seo` | For programmatic content creation at scale |
+
+---
+
+## Important Rule
+
+> **A topical map creates the strategy** — it tells you what to write, which keywords to target, and how to structure the site. The actual writing is up to you (or the `copywriting` skill).
