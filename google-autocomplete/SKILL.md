@@ -279,6 +279,24 @@ Then set `HL = "ja"` and `GL = "JP"`.
 
 ---
 
+## Keyword Analysis Workflow — Zdroje vstupů
+
+Při použití v rámci `keywords-analysis` workflow (Fáze E) se autocomplete spouští pro **5 zdrojů vstupních KWs**:
+
+| Zdroj | SQL dotaz | Odhadovaný počet |
+|-------|-----------|-----------------|
+| 1. Seed keywords | `SELECT keyword FROM {schema}.seed_keywords` | 10–50 KWs |
+| 2. KW Planner top | `SELECT keyword FROM {schema}.keyword_planner ORDER BY avg_monthly_searches DESC LIMIT 30` | ~30 KWs |
+| 3. Competitor top | `SELECT DISTINCT keyword FROM seo.competitor_keywords WHERE project = '{schema}' ORDER BY search_volume DESC LIMIT 30` | ~30 KWs |
+| 4. GSC top 10% | `SELECT query FROM seo_kws.gsc_search_terms WHERE project = '{schema}' ORDER BY impressions DESC LIMIT (SELECT COUNT(*)/10 FROM seo_kws.gsc_search_terms WHERE project = '{schema}')` | variabilní |
+| 5. Ads top 10% | `SELECT search_term FROM seo_kws.ads_search_terms WHERE project = '{schema}' ORDER BY impressions DESC LIMIT (SELECT COUNT(*)/10 FROM seo_kws.ads_search_terms WHERE project = '{schema}')` | variabilní |
+
+**Deduplikace vstupů** — před spuštěním odstraň duplicity napříč zdroji.
+
+**Odhad času:** každé KW ~2 minuty → 50 KWs ≈ 1.5–2 hodiny. Domluv s uživatelem maximální limit.
+
+---
+
 ## Rate-Limiting & Safety Notes
 
 | Risk | Mitigation |

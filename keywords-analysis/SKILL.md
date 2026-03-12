@@ -1,13 +1,13 @@
 ---
 name: keywords-analysis
-description: Workflow and analysis layer for comprehensive keyword research. Guides the step-by-step process of collecting keyword data using existing skills (GSC, DataForSEO, KW Planner, Autocomplete, SERP) into a DuckDB project, then provides SQL-based analysis — dedup, gap detection, volume distribution, and export for clustering. Use when the user wants to run a full keyword analysis, plan keyword research, or analyze collected keyword data.
+description: Workflow and analysis layer for comprehensive keyword research. Guides the step-by-step process of collecting keyword data using existing skills (GSC, DataForSEO, KW Planner, Autocomplete, SERP) into PostgreSQL, then provides SQL-based analysis — dedup, gap detection, volume distribution, and export for clustering. Use when the user wants to run a full keyword analysis, plan keyword research, or analyze collected keyword data.
 ---
 
 # Keywords Analysis — Workflow & Analysis
 
-Workflow for collecting SEO keyword data into a DuckDB project + analysis tools.
+Kompletní workflow pro sběr, čistění a clusterizaci SEO klíčových slov do PostgreSQL.
 
-**Princip:** Každý krok používá svůj vlastní skill. Všechna data jdou do jednoho DuckDB projektu. Po sběru analyzuješ přes `analyze.py`.
+**Princip:** Každý krok používá svůj vlastní skill. Všechna data jdou do jedné databáze (PostgreSQL). Workflow má tři hlavní fáze: **Sběr → Čistění → Clusterizace**.
 
 ---
 
@@ -15,205 +15,297 @@ Workflow for collecting SEO keyword data into a DuckDB project + analysis tools.
 
 > Kde co končí — přehled kam každý krok ukládá data.
 
-| Krok | Zdroj dat | → DuckDB tabulka | Klíčové sloupce |
-|------|-----------|-------------------|-----------------|
-| 1. GSC | Search Console | `search_console` | query, page, clicks, impressions, position |
-| 2. Competitors | DataForSEO | `competitor_keywords` | keyword, search_volume, rank, competitor_domain |
-| 3. KW Planner | Google Ads API | `keyword_planner` | keyword, avg_monthly_searches, competition |
-| 4. Autocomplete | Google Suggest | `suggestions` | seed_keyword, suggestion, position |
-| 5. Volume lookup | Google Ads API | `keyword_planner` | (doplní volume ke krokům 1, 4) |
-| 6. SERP | google-serp | `serp` + `related_queries` + `people_also_ask` | keyword, position, title, url |
-| 7. Volume related+PAA | Google Ads API | `keyword_planner` | (doplní volume ke kroku 6) |
-| 8. Kategorizace | keyword-categorization | export → cluster → CSV | Main_Category, Subcategory |
+| Fáze | Krok | Skill / Zdroj | → PostgreSQL tabulka | Klíčové sloupce |
+|------|------|---------------|----------------------|-----------------|
+| Sběr | A. Seed KWs | manuálně + LLM | `{schema}.seed_keywords` | keyword, language |
+| Sběr | B1. GSC | `gsc-ads-keyword-data` | `seo_kws.gsc_search_terms` | query, position, impressions, clicks |
+| Sběr | B2. Ads search terms | `gsc-ads-keyword-data` | `seo_kws.ads_search_terms` | search_term, impressions, cost |
+| Sběr | C. Konkurenti | `dataforseo-competitors` | `seo.competitor_keywords` | keyword, search_volume, rank_absolute, competitor_domain |
+| Sběr | D. KW Planner rozšíření | `google-ads-keyword-planner` | `{schema}.keyword_planner` | keyword, avg_monthly_searches, competition |
+| Sběr | E. Autocomplete | `google-autocomplete` | `{schema}.suggestions` | seed_keyword, suggestion |
+| Sběr | F. SERP | `google-serp` | `seo_kws.serp_organic`, `{schema}.related_queries` | keyword, position, url |
+| Sběr | G. Volume lookup | `google-ads-keyword-planner` | `{schema}.keyword_planner` | doplní volume ke krokům B, E, F |
+| Čistění | H1. Nulová hledanost | SQL | — | odstraní KWs bez dat |
+| Čistění | H2. Sémantické čistění | `keyword-cleaning` | relevance_score v source tabulkách | is_relevant = true/false |
+| Cluster. | I. Clusterizace | `keyword-categorization` | export → CSV | Main_Category, Subcategory, SERP_Cluster |
 
 ---
 
 ## Workflow
 
-### 0. Vytvoř DuckDB projekt
+### Prerekvizity
 
-```bash
-python3 ../duckdb-keywords/scripts/kw_db.py create <project>
+Vždy se zeptej na:
+1. Klienta / projekt (slug pro PostgreSQL schéma)
+2. Lokalitu a jazyk (ovlivňuje KAŽDÝ krok)
+3. Web klienta (URL pro LLM analýzu seed KWs)
+4. Přístupy ke zdrojům (GSC API / BigQuery, Ads Customer ID, DataForSEO credentials)
+
+---
+
+### A. Seed Keywords (Vstupní data)
+
+Seed keywords = hlavní produkty, služby a témata webu. Jsou **zlatý standard** pro celý workflow — čistění i clusterizace se od nich odvíjí.
+
+**Zdroj 1 — Od klienta (ruční input):**
+Vyžaduj min. 10–30 seed keywords pokrývající všechny pilíře webu.
+
+**Zdroj 2 — LLM analýza webu (nové):**
+Projdi web klienta a identifikuj hlavní témata:
+1. Fetch homepage + klíčové landing pages
+2. Identifikuj produkty/služby, kategorie, FAQ témata
+3. Navrhni 20–50 seed keywords (vč. long-tail variant)
+4. Předlož klientovi k odsouhlasení
+
+**Uložení do DB:**
+```sql
+CREATE TABLE IF NOT EXISTS {schema}.seed_keywords (
+    keyword TEXT,
+    language TEXT NOT NULL,
+    PRIMARY KEY (keyword, language)
+);
+
+INSERT INTO {schema}.seed_keywords (keyword, language) VALUES
+('produkt 1', 'cs'), ('produkt 2', 'cs')
+ON CONFLICT DO NOTHING;
 ```
 
 ---
 
-### 1. GSC data (pos ≤ 20) ⭐ Klíčový krok
+### B. Reálná data — GSC + Google Ads
 
-Tato data jsou základ — ukazují na čem web reálně rankuje.
+> ⭐ Klíčový krok — reálné dotazy z vlastního webu.
 
-**Varianta A: BigQuery (nejlepší)**
+**Použij skill `gsc-ads-keyword-data`**
+
+Filtry (standardní pro keyword analysis):
+- **GSC:** posledních 90 dní, jen pozice **≤ 20** (reálně viditelné výsledky)
+- **Google Ads:** posledních 90 dní, min. **10 impresí** (odfiltruje statistický šum)
+
+```bash
+# GSC data (API varianta)
+python3 ../gsc-ads-keyword-data/scripts/fetch_gsc_api.py \
+  --project {schema} --site sc-domain:klient.cz --days 90
+
+# Ads search terms (API varianta)
+python3 ../gsc-ads-keyword-data/scripts/fetch_ads_search_terms_api.py \
+  --project {schema} --customer-id 123-456-7890 --days 90
+```
+
+Data jdou do `seo_kws.gsc_search_terms` a `seo_kws.ads_search_terms`.
+
+---
+
+### C. Konkurenti — DataForSEO
+
+**Potřebujeme min. 5 konkurentů.** Jak je identifikovat:
+- GSC URL overlap (kdo se zobrazuje na stejné KWs)
+- SimilarWeb / Ahrefs
+- LLM: "Kdo jsou hlavní online konkurenti pro {web} v {lokalita}?"
+- Ruční input od klienta
+
+**Použij skill `dataforseo-competitors`** pro každého konkurenta:
+
+```bash
+python3 ../dataforseo-competitors/scripts/competitor_keywords.py {schema} konkurent1.cz --location 2203 --language cs
+python3 ../dataforseo-competitors/scripts/competitor_keywords.py {schema} konkurent2.cz --location 2203 --language cs
+# ... pro všech 5+ konkurentů
+```
+
+Data jdou do `seo.competitor_keywords` (vč. search_volume, rank_absolute, search_intent).
+
+---
+
+### D. Google Ads Keyword Planner — rozšíření seed KWs
+
+**Vstup:** seed keywords + top competitor keywords (top 50 by search_volume)
+
+```sql
+-- Top competitor KWs pro KW Planner seeds
+SELECT DISTINCT keyword FROM seo.competitor_keywords
+WHERE project = '{schema}'
+ORDER BY search_volume DESC LIMIT 50;
+```
+
+**Použij skill `google-ads-keyword-planner`** — max 20 seeds na batch:
 
 ```python
-from google.cloud import bigquery
-client = bigquery.Client()
-query = """
-    SELECT query, page, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
-           AVG(average_ctr) AS ctr, AVG(average_position) AS position
-    FROM `<bq_dataset>.searchdata_site_impression`
-    WHERE search_type = 'WEB' AND average_position <= 20
-    GROUP BY query, page HAVING SUM(impressions) > 0
-    ORDER BY impressions DESC
-"""
+# Batch zpracování seed KWs (max 20 per call)
+get_keyword_ideas(language_id=1021, geo_ids=[2203], seed_keywords=batch_of_20)
 ```
 
-**Varianta B: Google Search Console API**
-
-```python
-from googleapiclient.discovery import build
-service = build('searchconsole', 'v1')
-response = service.searchanalytics().query(
-    siteUrl='sc-domain:example.com',
-    body={
-        'startDate': '2025-09-01', 'endDate': '2026-03-01',
-        'dimensions': ['query', 'page'], 'rowLimit': 25000,
-    }
-).execute()
-# Filtruj rows kde position <= 20
-```
-
-**Varianta C: Google Analytics 4 (MCP tool)**
-
-Pokud jsou GA4 data napojená, použij `run_report` s dimenzí `searchTerm` (pokud je GSC propojená s GA4).
-
-**Varianta D: Manuální export z GSC UI**
-
-1. Jdi na https://search.google.com/search-console → Performance
-2. Filtruj pozice ≤ 20
-3. Exportuj CSV
-4. Importuj: `python3 ../duckdb-keywords/scripts/kw_db.py import <project> search_console export.csv`
-
-> ⚠️ **Vždy** se zeptej uživatele, jaký zdroj GSC dat má k dispozici. Nikdy nepřeskakuj tento krok.
-
-```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> search_console gsc_export.csv
-```
+Výsledky ulož do `{schema}.keyword_planner`.
 
 ---
 
-### 2. Competitor keywords (DataForSEO)
+### E. Google Autocomplete — 5 zdrojů vstupů
 
-```bash
-# Pro každého konkurenta:
-python3 ../dataforseo-competitors/scripts/competitor_keywords.py <project> competitor1.com
-python3 ../dataforseo-competitors/scripts/competitor_keywords.py <project> competitor2.com --limit 1000
-```
+> ⚠️ Každé KW trvá ~2 minuty (49 requestů × 2.5s pauza).
 
----
-
-### 3. KW Planner ideas
-
-**Vstup:** seed keywords + **top competitor keywords** (ne jen seedy!)
-
-Postup:
-1. Vezmi seed keywords od uživatele
-2. Z kroku 2 vyber top competitor KWs (podle search_volume)
-3. Obojí pošli do Keyword Planneru (max 20 na batch)
+**Vstupní KWs pro autocomplete expansion (5 zdrojů):**
 
 ```sql
--- Vyber top competitor KWs pro KW Planner seeds
-SELECT DISTINCT keyword FROM competitor_keywords
-ORDER BY search_volume DESC LIMIT 50
+-- 1. Seed keywords (vždy)
+SELECT keyword FROM {schema}.seed_keywords WHERE language = 'cs';
+
+-- 2. Návrhy z KW Planneru (top by volume)
+SELECT DISTINCT keyword FROM {schema}.keyword_planner
+ORDER BY avg_monthly_searches DESC LIMIT 30;
+
+-- 3. DataForSEO competitor KWs (top by volume)
+SELECT DISTINCT keyword FROM seo.competitor_keywords
+WHERE project = '{schema}'
+ORDER BY search_volume DESC LIMIT 30;
+
+-- 4. Top 10% ze GSC (by impressions)
+SELECT query FROM seo_kws.gsc_search_terms
+WHERE project = '{schema}'
+ORDER BY impressions DESC
+LIMIT (SELECT COUNT(*)/10 FROM seo_kws.gsc_search_terms WHERE project = '{schema}');
+
+-- 5. Top 10% z Google Ads (by impressions)
+SELECT search_term FROM seo_kws.ads_search_terms
+WHERE project = '{schema}'
+ORDER BY impressions DESC
+LIMIT (SELECT COUNT(*)/10 FROM seo_kws.ads_search_terms WHERE project = '{schema}');
 ```
 
-Výsledky importuj do `keyword_planner`:
-```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> keyword_planner kw_planner_results.csv
-```
+**Použij skill `google-autocomplete`** pro každé KW (včetně alphabet expansion a question prefixes):
+
+Výsledky ulož do `{schema}.suggestions`.
 
 ---
 
-### 4. Google Autocomplete
+### F. Google SERP
 
-**Limity:**
-- **Malý projekt (< 500 KWs):** expand top 10–15 KWs by volume
-- **Střední projekt (500–2000 KWs):** expand top 20–30 KWs
-- **Velký projekt (2000+ KWs):** expand top 30–50 KWs
-
-> ⚠️ Každé KW trvá ~2 minuty (49 requestů × 2.5s pauza). 30 KWs = ~1 hodina.
-
-Vstup: top N KWs z `keyword_planner` seřazené podle search volume.
+**Vstup:** seed keywords + top competitor keywords (ne vše — cca 50–100 KWs)
 
 ```sql
--- Vyber KWs pro autocomplete expansion
-SELECT DISTINCT keyword FROM keyword_planner
-WHERE avg_monthly_searches > 100
-ORDER BY avg_monthly_searches DESC LIMIT 30
+-- Vstupy pro SERP scraping
+SELECT keyword FROM {schema}.seed_keywords
+UNION
+SELECT keyword FROM seo.competitor_keywords
+WHERE project = '{schema}' ORDER BY search_volume DESC LIMIT 50;
 ```
 
-Výsledky importuj do `suggestions`:
+**Použij skill `google-serp`** (n8n workflow, batch mode):
+
 ```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> suggestions autocomplete_*.txt
+curl -s -X POST "https://s.smuz.cz/webhook/.../serp/ingest" \
+  -d '{"client": "{schema}", "keywords": [...], "lang": "cs", "country": "cz", "num": 10}'
 ```
+
+Výstup: organic results v `seo_kws.serp_organic`, related queries v `{schema}.related_queries`.
 
 ---
 
-### 5. Volume lookup
+### G. Volume Lookup — doplnění hledanosti
 
-Pro všechna nová KW bez hledanosti (z autocomplete, GSC) — pošli přes KW Planner.
+Všechna KWs bez `avg_monthly_searches` → Google Ads KW Planner:
 
 ```sql
--- KWs které potřebují volume
-SELECT DISTINCT s.suggestion AS keyword FROM suggestions s
-LEFT JOIN keyword_planner kp ON LOWER(s.suggestion) = LOWER(kp.keyword)
-WHERE kp.keyword IS NULL
+-- KWs z autocomplete bez volume
+SELECT DISTINCT s.suggestion AS keyword
+FROM {schema}.suggestions s
+LEFT JOIN {schema}.keyword_planner kp ON LOWER(s.suggestion) = LOWER(kp.keyword)
+WHERE kp.keyword IS NULL;
+
+-- KWs z related_queries bez volume
+SELECT DISTINCT r.related_query AS keyword
+FROM {schema}.related_queries r
+LEFT JOIN {schema}.keyword_planner kp ON LOWER(r.related_query) = LOWER(kp.keyword)
+WHERE kp.keyword IS NULL;
 ```
+
+Výsledky doplní do `{schema}.keyword_planner`.
 
 ---
 
-### 6. SERP scrape (top 100 by volume)
+## Fáze čistění
 
-```bash
-# Použij google-serp skill s pauzami
-python3 ../google-serp/scripts/google_serp.py "keyword" --lang cs --country cz
+### H1. Odstranění nulové hledanosti
+
+Před sémantickým čistěním odstraníme KWs bez dat (ušetří čas modelu):
+
+```sql
+-- Označení nulových KWs v suggestions
+UPDATE {schema}.suggestions s
+SET is_relevant = false
+FROM {schema}.keyword_planner kp
+WHERE LOWER(s.suggestion) = LOWER(kp.keyword)
+  AND (kp.avg_monthly_searches = 0 OR kp.avg_monthly_searches IS NULL);
+
+-- Totéž pro related_queries
+UPDATE {schema}.related_queries r
+SET is_relevant = false
+FROM {schema}.keyword_planner kp
+WHERE LOWER(r.related_query) = LOWER(kp.keyword)
+  AND (kp.avg_monthly_searches = 0 OR kp.avg_monthly_searches IS NULL);
 ```
 
-Importuj:
+### H2. Sémantické čistění *(KWs vs. Seed Keywords)*
+
+> **Co se děje:** Model porovná každé KW se seed keywords. KWs nepodobná žádnému seedy jsou nerelevantní a vyřadí se.
+
+**Použij skill `keyword-cleaning`** (model `paraphrase-multilingual-MiniLM-L12-v2`):
+
 ```bash
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> serp serp_organic_*.csv
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> related_queries serp_related_*.csv
-python3 ../duckdb-keywords/scripts/kw_db.py import <project> people_also_ask serp_paa_*.csv
+# 1. Průzkum — najdi threshold (zkontroluj vzorky na různých hranicích)
+python3 ../keyword-cleaning/scripts/semantic_cleaner.py \
+  --schema {schema} --table suggestions --analyze-only
+
+# 2. Aplikuj řez (typicky 0.25–0.35)
+python3 ../keyword-cleaning/scripts/semantic_cleaner.py \
+  --schema {schema} --table suggestions --apply-threshold 0.28
+
+# Totéž pro related_queries
+python3 ../keyword-cleaning/scripts/semantic_cleaner.py \
+  --schema {schema} --table related_queries --apply-threshold 0.28
 ```
+
+Po čistění: jen KWs s `is_relevant = true` postupují do clusterizace.
 
 ---
 
-### 7. Volume pro related + PAA
+## Fáze clusterizace
 
-Stejný postup jako krok 5 — pošli nová related queries a PAA otázky přes KW Planner.
+### I. Clusterizace *(KWs vs. KWs — shlukování mezi sebou)*
 
----
+> **Co se děje:** Relevantní KWs se shlukují mezi sebou do témat a pilířů. Model hledá skupiny podobných KWs — ne porovnává se seedami.
 
-### 8. Kategorizace
+**Použij skill `keyword-categorization`** (nová pipeline: SBERT + UMAP + Agglomerative/HDBSCAN + SERP Jaccard):
+
+```sql
+-- Export relevantních KWs pro clusterizaci
+SELECT k.keyword, kp.avg_monthly_searches AS search_volume
+FROM (
+  SELECT suggestion AS keyword FROM {schema}.suggestions WHERE is_relevant = true
+  UNION
+  SELECT related_query FROM {schema}.related_queries WHERE is_relevant = true
+  UNION
+  SELECT query FROM seo_kws.gsc_search_terms WHERE project = '{schema}' AND position <= 20
+) k
+JOIN {schema}.keyword_planner kp ON LOWER(k.keyword) = LOWER(kp.keyword)
+WHERE kp.avg_monthly_searches > 0
+ORDER BY kp.avg_monthly_searches DESC;
+```
 
 ```bash
-# Export pro clustering
-python3 scripts/analyze.py <project> export-for-clustering
+# Export CSV
+\copy (<SQL výše>) TO '/tmp/kw_{schema}_for_clustering.csv' CSV HEADER;
 
 # Spusť clustering
-python3 ../keyword-categorization/scripts/cluster_keywords.py /tmp/kw_<project>_for_clustering.csv
-```
-
----
-
-## Analysis script
-
-`scripts/analyze.py` — pracuje s daty v DuckDB.
-
-```bash
-python3 scripts/analyze.py <project> overview              # Přehled: počty, volume, zdroje
-python3 scripts/analyze.py <project> dedup                 # Duplicity a overlap report
-python3 scripts/analyze.py <project> top 50                # Top N KWs by volume (všechny zdroje)
-python3 scripts/analyze.py <project> gaps                  # KWs kde competitor rankuje a ty ne
-python3 scripts/analyze.py <project> export-for-clustering # Export pro keyword-categorization
-python3 scripts/analyze.py <project> export-all            # Kompletní export unique KWs
+python3 ../keyword-categorization/scripts/cluster_keywords.py \
+  /tmp/kw_{schema}_for_clustering.csv
 ```
 
 ---
 
 ## Klíčové zásady
 
-- **Nikdy nepřeskoč GSC** — vždycky se zeptej jak data získat
-- **KW Planner = seeds + competitor KWs** — ne jen seedy
-- **Autocomplete limit domluv s uživatelem** — kolik KWs expandovat
-- **Dedup průběžně** — `analyze.py dedup` po každém importním kroku
-- **Volume je základ** — KWs bez volume obohať přes KW Planner předtím, než analyzuješ
+- **Lokalita a jazyk** — nastav správně v KAŽDÉM kroku (GSC site URL, DataForSEO location, KW Planner geo_id, Autocomplete GL/HL)
+- **Min. 5 konkurentů** — DataForSEO bez dostatečného počtu konkurentů dá nekompletní obraz trhu
+- **Autocomplete = 5 zdrojů** — seed KWs jsou jen jeden z nich, nezapomeň na GSC/Ads top 10%
+- **Čistění před clusterizací** — nikdy neklusteruj nečistá data, model by tvořil shluky z odpadků
+- **H1 před H2** — nejdřív odstranit nulovou hledanost (rychlé SQL), pak teprve spouštět model (pomalé)
+- **Volume je základ** — KWs bez volume nejsou v kroku H1 automaticky odstraněny, použij `IS NULL` i `= 0`

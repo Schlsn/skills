@@ -6,7 +6,7 @@ description: Scrape Google Search results using local Playwright (headless Chrom
 # Google SERP Scraper
 
 Two modes of operation:
-1. **n8n workflow (preferred for batch)** — queues keywords into PostgreSQL, SearxNG scrapes asynchronously
+1. **n8n workflow (preferred for batch)** — queues keywords into PostgreSQL (`seo_kws.tasks`), SearxNG scrapes asynchronously and saves directly to the client's schema (e.g. `client_slug.serp`).
 2. **Direct SearxNG via SSH (fallback)** — synchronous, no queue, no DB storage
 
 ---
@@ -60,10 +60,10 @@ Poll every 30–60 seconds until `status == "completed"`.
 
 Connect via SSH to Hetzner:
 ```bash
-ssh hetzner-n8n "docker exec n8n-stack-postgres-1 psql -U n8n -d n8n -c \"<SQL>\""
+ssh hetzner-n8n "docker exec n8n-stack-postgres-1 psql -U n8n -d seo -c \"<SQL>\""
 ```
 
-**Database:** `n8n` on `78.46.190.162:5432`, schema `seo_kws`
+**Database:** `seo` on `78.46.190.162:5432`, schema `seo_kws`
 
 #### Organic results
 ```sql
@@ -100,6 +100,20 @@ ORDER BY j.id DESC
 LIMIT 20;
 ```
 
+#### Final Results in Client Schema
+```sql
+-- Client schemas and tables are automatically created by the worker, e.g. "pronatal", "my_project"
+SELECT keyword, position, title, url, description, language, country, imported_at
+FROM "my_project".serp
+ORDER BY keyword, position;
+
+-- PAA results
+SELECT seed_keyword, question, position FROM "my_project".people_also_ask;
+
+-- Related searches
+SELECT seed_keyword, related_query, position FROM "my_project".related_queries;
+```
+
 #### Task-level detail (errors)
 ```sql
 SELECT keyword, status, attempts, last_error, scraped_at
@@ -134,8 +148,11 @@ seo_kws.serp_related — task_id, job_id, client_id, keyword, position,
 
 ### Notes on SERP Worker
 - Runs automatically every 30 seconds, processes one task per cycle
-- Engine fallback order: `google → bing → duckduckgo → brave`
+- Engine fallback is **per-attempt**: attempt 1 → google, 2 → bing, 3 → duckduckgo, 4 → brave
+- Each attempt calls SearxNG via a dedicated HTTP Request node (not Code node — `$helpers` unavailable in n8n sandbox)
+- Language is auto-formatted: `lang=cs` + `country=cz` → `cs-CZ` (required for correct Bing/Google locale)
 - If all engines fail (CAPTCHA/blocked): task retries up to 3×, then marks `failed`
+- PAA (`serp_paa`) is not populated — SearxNG standard JSON response does not extract People Also Ask boxes
 
 ---
 
@@ -216,7 +233,7 @@ curl -s "http://localhost:8080/search?q=ivf+klinika&format=json&engines=google,b
 
 - **n8n API token**: `/Users/adam/Documents/credentials/api/N8N-API`
 - **Hetzner SSH**: `ssh hetzner-n8n` (alias in `~/.ssh/config`)
-- **PostgreSQL**: host `78.46.190.162`, port `5432`, user `n8n`, db `n8n`, schema `seo_kws`
+- **PostgreSQL**: host `78.46.190.162`, port `5432`, user `n8n`, db `seo`, schema `seo_kws`
 - **n8n UI**: `https://s.smuz.cz` (workflows tagged **SERP**)
 - **SearxNG**: internal Docker `172.18.0.10:8080` (access via SSH)
 
