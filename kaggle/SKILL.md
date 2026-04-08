@@ -10,6 +10,35 @@ Spouštění výpočetně náročných analýz na Kaggle KKB (Kernel/Notebook Ba
 
 ---
 
+## GPU — vždy používej T4
+
+**Kaggle přiděluje GPU automaticky** (T4 nebo P100). T4 (sm_75) je preferovaná — P100 (sm_60) je starší a **nekompatibilní s novým PyTorch (cu121+)**.
+
+**Řešení: vždy přeinstaluj PyTorch cu118 jako první buňku notebooku** — funguje na T4 i P100:
+
+```python
+import subprocess, sys
+
+print('Instalace PyTorch cu118 (kompatibilní s T4 i P100)...')
+subprocess.run([
+    sys.executable, '-m', 'pip', 'install', '-q',
+    'torch', 'torchvision', 'torchaudio',
+    '--index-url', 'https://download.pytorch.org/whl/cu118',
+], check=True)
+print('OK')
+```
+
+Pak vždy nastav `device = 'cuda'`:
+```python
+import torch
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f'GPU: {torch.cuda.get_device_name(0)} → {device}')
+```
+
+**kernel-metadata.json:** `"enable_gpu": "true"` — Kaggle přidělí GPU (většinou T4).
+
+---
+
 ## Credentials
 
 Token uložen v `~/.kaggle/kaggle.json`:
@@ -171,6 +200,8 @@ Obecně: `/kaggle/input/<dataset-slug-bez-username>/<filename>`
 | `401 Unauthorized` na CLI | Env var není nastavena | `export KAGGLE_API_TOKEN="KGAT_..."` |
 | `No such option: --no-stem` (typer) | `typer.Option(False, "--stem")` nevytváří `--no-stem` | Příznak s `False` defaultem jednoduše vynech ze seznamu args |
 | Kernel verze ignoruje fix | Kaggle může spustit starší verzi při souběhu | Počkej na dokončení běžící verze, pak pushni novou |
+| P100: `UserWarning: sm_60 not compatible` + crash | Nový PyTorch (cu121+) nepodporuje P100 sm_60 | Přeinstaluj PyTorch cu118 (podporuje sm_60+) jako první buňku |
+| Kaggle přidělil P100 místo T4 | GPU přidělení je automatické, nelze pevně nastavit | PyTorch cu118 funguje na obou — vždy ho instaluj |
 
 ### Auto-detect vstupního souboru (vždy přidat do notebooku)
 
