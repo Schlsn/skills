@@ -164,18 +164,53 @@ Obecně: `/kaggle/input/<dataset-slug-bez-username>/<filename>`
 
 | Chyba | Příčina | Řešení |
 |-------|---------|--------|
-| `FileNotFoundError: /kaggle/input/...` | Špatný dataset slug v cestě | Slug je lowercase s pomlčkami, bez username |
+| `FileNotFoundError: /kaggle/input/...` | Špatný dataset slug v cestě | Slug je lowercase s pomlčkami, bez username — viz auto-detect níže |
 | `HTTP 400 Invalid argument` na blob upload | Chybí `"type": "DATASET"` | Přidat do POST body |
 | `HTTP 404` na dataset create | Špatný endpoint | Použít `/api/v1/datasets/create/new` |
 | `KernelWorkerStatus.ERROR` | Chyba v notebooku | `kaggle kernels output` → stáhni `.log` soubor |
 | `401 Unauthorized` na CLI | Env var není nastavena | `export KAGGLE_API_TOKEN="KGAT_..."` |
+| `No such option: --no-stem` (typer) | `typer.Option(False, "--stem")` nevytváří `--no-stem` | Příznak s `False` defaultem jednoduše vynech ze seznamu args |
+| Kernel verze ignoruje fix | Kaggle může spustit starší verzi při souběhu | Počkej na dokončení běžící verze, pak pushni novou |
+
+### Auto-detect vstupního souboru (vždy přidat do notebooku)
+
+Místo hardcoded cesty vždy použij auto-detect — zabrání `FileNotFoundError`:
+
+```python
+import os
+
+DATASET_SLUG = 'pronatal-keywords-for-clustering'  # slug bez username
+DATASET_DIR  = f'/kaggle/input/{DATASET_SLUG}'
+
+if os.path.isdir(DATASET_DIR):
+    csv_files  = [f for f in os.listdir(DATASET_DIR) if f.endswith('.csv')]
+    INPUT_FILE = os.path.join(DATASET_DIR, csv_files[0])
+else:
+    # Fallback: hledej CSV v celém /kaggle/input/
+    found = []
+    for root, _, files in os.walk('/kaggle/input/'):
+        for f in files:
+            if f.endswith('.csv'):
+                found.append(os.path.join(root, f))
+    INPUT_FILE = found[0] if found else None
+
+print(f'/kaggle/input/ obsah: {os.listdir("/kaggle/input/")}')
+print(f'INPUT_FILE = {INPUT_FILE}')
+```
 
 ---
 
-## Příklad: Sémantické HDBSCAN clustering
+## Příklady: Sémantické HDBSCAN clustering (Pronatal)
 
-Notebook `pronatal_semantic_clustering.ipynb` běžel na P100 GPU:
+**Varianta 1 — vlastní notebook** (`pronatal-semantic-clustering`):
 - Dataset: `adamschlesien/pronatal-keywords-for-clustering` (27,510 KW)
-- Kernel: `adamschlesien/pronatal-semantic-clustering`
-- Model: `all-MiniLM-L6-v2`, clustering: HDBSCAN
+- GPU: Tesla P100, model: `all-MiniLM-L6-v2`
 - Výstupy: `pronatal_clusters.csv` + `pronatal_clusters_chart.html`
+- Výsledky: 13,639 clusterováno / 2,524 clusterů / 13,857 noise
+
+**Varianta 2 — Lee Foot cluster-hdbscan.py** (`pronatal-lee-foot-hdbscan-clustering`):
+- Skript: https://github.com/searchsolved/search-solved-public-seo/.../cluster-hdbscan.py
+- CLI: `python cluster-hdbscan.py <file.csv> --device cuda --volume search_volume --chart-type sunburst --min-cluster-size 3 --output-path /kaggle/working/out`
+- Výstup: `.xlsx` (2 sheety: PivotTable + Clustered Keywords) + `sunburst.html`
+- ⚠️ Konverze na CSV potřeba: `pd.read_excel(xlsx, sheet_name='Clustered Keywords').to_csv(...)`
+- ⚠️ `--stem` defaultuje na `False` — nepředávej `--no-stem`, typer ho nezná
