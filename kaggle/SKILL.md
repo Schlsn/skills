@@ -35,7 +35,17 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f'GPU: {torch.cuda.get_device_name(0)} → {device}')
 ```
 
-**kernel-metadata.json:** `"enable_gpu": "true"` — Kaggle přidělí GPU (většinou T4).
+**kernel-metadata.json:** `"enable_gpu": "true"` — povolí GPU, ale typ určuje `--accelerator` při push.
+
+**Výběr GPU při push:**
+```bash
+kaggle kernels push -p ./kernel-dir/ --accelerator NvidiaTeslaT4   # ← vždy toto
+# Dostupné acceleratory (Feb 2026):
+# NvidiaTeslaT4, NvidiaTeslaT4Highmem, NvidiaTeslaP100 (default, sm_60!),
+# NvidiaTeslaA100, NvidiaL4, NvidiaH100, NvidiaRtxPro6000
+# TpuV38, Tpu1VmV38, TpuV5E8, TpuV6E8
+```
+⚠️ **Vyžaduje kaggle CLI ≥ 2.0** (`pip install kaggle --upgrade`). Starší v1.7.x `--accelerator` nezná.
 
 ---
 
@@ -122,8 +132,9 @@ Automaticky:
 ```bash
 export KAGGLE_API_TOKEN="KGAT_ace4cd1d3f2180478e5d9a064d448f40"
 
-# Push notebook z připravené složky
-kaggle kernels push -p ./kernel-dir/
+# Push notebook — VŽDY s --accelerator NvidiaTeslaT4
+# Default je NvidiaTeslaP100 (sm_60, nekompatibilní s novým PyTorch!)
+kaggle kernels push -p ./kernel-dir/ --accelerator NvidiaTeslaT4
 
 # Sledování stavu
 kaggle kernels status adamschlesien/kernel-slug

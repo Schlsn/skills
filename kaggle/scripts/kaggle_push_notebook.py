@@ -105,9 +105,17 @@ def build_kernel_dir(
     return tmpdir
 
 
-def push_kernel(kernel_dir: Path, token: str) -> str:
-    """Push kernel and return version info."""
-    code, out = run_kaggle(["kernels", "push", "-p", str(kernel_dir)], token)
+def push_kernel(kernel_dir: Path, token: str, accelerator: str = "NvidiaTeslaT4") -> str:
+    """Push kernel and return version info.
+
+    accelerator: NvidiaTeslaT4 (default), NvidiaTeslaT4Highmem, NvidiaTeslaP100,
+                 NvidiaTeslaA100, NvidiaL4, NvidiaH100, NvidiaRtxPro6000
+                 Requires kaggle CLI >= 2.0 (pip install kaggle --upgrade)
+    """
+    args = ["kernels", "push", "-p", str(kernel_dir)]
+    if accelerator:
+        args += ["--accelerator", accelerator]
+    code, out = run_kaggle(args, token)
     if code != 0 and "successfully pushed" not in out.lower():
         raise RuntimeError(f"Kernel push failed:\n{out}")
     return out
@@ -168,6 +176,9 @@ def main():
     p.add_argument("--output-dir", default="./kaggle-output", help="Directory for downloaded results")
     p.add_argument("--username", default="adamschlesien", help="Kaggle username")
     p.add_argument("--token", default=os.environ.get("KAGGLE_API_TOKEN"), help="KGAT_ API token")
+    p.add_argument("--accelerator", default="NvidiaTeslaT4",
+                   help="GPU accelerator ID (default: NvidiaTeslaT4). Options: NvidiaTeslaT4, "
+                        "NvidiaTeslaT4Highmem, NvidiaTeslaP100, NvidiaTeslaA100, NvidiaL4, NvidiaH100")
     p.add_argument("--gpu", action="store_true", default=True, help="Enable GPU (default: on)")
     p.add_argument("--no-gpu", action="store_false", dest="gpu", help="Disable GPU")
     p.add_argument("--no-internet", action="store_false", dest="internet", help="Disable internet")
@@ -214,7 +225,7 @@ def main():
 
     # Push
     print("[2/4] Pushing to Kaggle...")
-    push_out = push_kernel(kernel_dir, args.token)
+    push_out = push_kernel(kernel_dir, args.token, accelerator=args.accelerator if args.gpu else "")
     print(f"  {push_out}")
 
     # Cleanup temp dir
